@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
+using SevenRecord.Analysis;
 using SevenRecord.Export;
 using SevenRecord.Media;
 
@@ -75,6 +76,28 @@ if (string.Equals(args[0], "export-plan", StringComparison.OrdinalIgnoreCase) &&
     return result.Succeeded ? 0 : 1;
 }
 
+if (string.Equals(args[0], "detect-loading", StringComparison.OrdinalIgnoreCase) &&
+    args.Length == 3)
+{
+    try
+    {
+        IReadOnlyList<SevenRecord.Domain.Video.LoadingSpeedEvent> events =
+            await FfmpegLoadingDetector.DetectAsync(args[1]);
+        await File.WriteAllTextAsync(
+            args[2],
+            JsonSerializer.Serialize(events, serializerOptions));
+        LoadingDetectionWorkerResult result = new(true, events.Count, null);
+        Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        LoadingDetectionWorkerResult result = new(false, 0, exception.Message);
+        Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
+        return 1;
+    }
+}
+
 PrintUsage();
 return 2;
 
@@ -86,4 +109,6 @@ static void PrintUsage()
         "  SevenRecord.Media.Worker encode-bgra <width> <height> <fps> <encoder> <output>");
     Console.Error.WriteLine(
         "  SevenRecord.Media.Worker export-plan <render-plan.json> <output.mp4>");
+    Console.Error.WriteLine(
+        "  SevenRecord.Media.Worker detect-loading <screen-media> <output-json>");
 }

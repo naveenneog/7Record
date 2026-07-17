@@ -242,3 +242,12 @@ Cursor capture is optional. If the Windows desktop session does not expose a cur
 Carry cursor zoom center, scale, start, and duration as structured automation metadata. Render enabled events with time-based FFmpeg zoompan expressions before camera overlays and caption burn-in.
 
 Disabling the event removes the zoom from the render plan without modifying screen media.
+
+## D-028: Loading/waiting suggestions
+
+**Status:** Accepted as first detector  
+**Date:** 2026-07-18
+
+Run low-motion detection in the isolated worker after screen publication. Intervals of at least two seconds become visible 4x speed suggestions with conservative confidence and remain disabled/resettable timeline automation.
+
+Freeze-through-end-of-file uses probed media duration. Future confidence combines interaction and audio inactivity.

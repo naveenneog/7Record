@@ -65,13 +65,25 @@ public sealed class ProjectTimelineLoaderTests
                             1.8,
                             1)
                     }));
+            await File.WriteAllTextAsync(
+                Path.Combine(project, "loading-speed-plan.json"),
+                JsonSerializer.Serialize(
+                    new[]
+                    {
+                        new LoadingSpeedEvent(
+                            "loading",
+                            TimeSpan.FromSeconds(3),
+                            TimeSpan.FromSeconds(2),
+                            4,
+                            0.65)
+                    }));
 
             TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(project);
 
             Assert.HasCount(2, timeline.Clips);
             Assert.IsTrue(timeline.Clips.Any(clip => clip.Track is TimelineTrackKind.Screen));
             Assert.IsTrue(timeline.Clips.Any(clip => clip.Track is TimelineTrackKind.Microphone));
-            Assert.HasCount(3, timeline.Automation);
+            Assert.HasCount(4, timeline.Automation);
             Assert.HasCount(1, timeline.Captions);
             Assert.IsTrue(timeline.Automation.All(item => item.IsEnabled));
             Assert.AreEqual(TimeSpan.FromSeconds(5), timeline.Duration);

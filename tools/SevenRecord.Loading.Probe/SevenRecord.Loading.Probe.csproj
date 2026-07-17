@@ -1,9 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\SevenRecord.Media\SevenRecord.Media.csproj" />
-    <ProjectReference Include="..\SevenRecord.Export\SevenRecord.Export.csproj" />
-    <ProjectReference Include="..\SevenRecord.Analysis\SevenRecord.Analysis.csproj" />
+    <ProjectReference Include="..\..\src\SevenRecord.Analysis\SevenRecord.Analysis.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

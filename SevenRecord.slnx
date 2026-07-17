@@ -33,6 +33,7 @@
     <Project Path="tools/SevenRecord.Audio.Probe/SevenRecord.Audio.Probe.csproj" />
     <Project Path="tools/SevenRecord.Camera.Probe/SevenRecord.Camera.Probe.csproj" />
     <Project Path="tools/SevenRecord.Input.Probe/SevenRecord.Input.Probe.csproj" />
+    <Project Path="tools/SevenRecord.Loading.Probe/SevenRecord.Loading.Probe.csproj" />
     <Project Path="tools/SevenRecord.Transcription.Probe/SevenRecord.Transcription.Probe.csproj" />
   </Folder>
 </Solution>

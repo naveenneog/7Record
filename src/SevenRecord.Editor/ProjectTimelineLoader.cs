@@ -2,8 +2,8 @@ using System.Text.Json;
 using SevenRecord.Domain.Audio;
 using SevenRecord.Domain.Captions;
 using SevenRecord.Domain.Input;
-using SevenRecord.Domain.Timeline;
 using SevenRecord.Domain.Video;
+using SevenRecord.Domain.Timeline;
 using SevenRecord.Recording;
 
 namespace SevenRecord.Editor;
@@ -127,6 +127,37 @@ public static class ProjectTimelineLoader
                         ["centerX"] = zoom.CenterX,
                         ["centerY"] = zoom.CenterY,
                         ["scale"] = zoom.Scale,
+                    },
+                }));
+        }
+
+        string loadingPath = Path.Combine(
+            fullProjectPath,
+            "loading-speed-plan.json");
+        if (File.Exists(loadingPath))
+        {
+            string loadingJson = await File.ReadAllTextAsync(
+                loadingPath,
+                cancellationToken);
+            LoadingSpeedEvent[] loadingEvents =
+                JsonSerializer.Deserialize<LoadingSpeedEvent[]>(
+                    loadingJson,
+                    SerializerOptions) ?? [];
+            automation.AddRange(
+                loadingEvents.Select(item => new TimelineAutomationEvent(
+                    item.Id,
+                    "LoadingSpeed",
+                    TimelineTrackKind.Screen,
+                    TimelineRange.FromStartAndDuration(
+                        item.Start,
+                        item.Duration),
+                    $"Speed up waiting to {item.Speed:F1}×",
+                    true)
+                {
+                    NumericData = new Dictionary<string, double>
+                    {
+                        ["speed"] = item.Speed,
+                        ["confidence"] = item.Confidence,
                     },
                 }));
         }

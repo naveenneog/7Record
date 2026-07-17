@@ -73,10 +73,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Caption text and timing are editable in the timeline with undo/redo; each state regenerates JSON, SRT, and VTT without touching audio.
 - Cursor movement/click metadata and reversible zoom suggestions are implemented. The current remote desktop exposes no cursor, so the optional path awaits interactive-desktop validation.
 - Enabled cursor zoom suggestions now render through smooth time-based zoompan expressions before camera/caption composition.
+- Post-recording low-motion detection now creates reversible 4x loading/waiting suggestions and handles freezes that continue through EOF.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: add loading/waiting detection and reversible speed-up events.
+- Next feature: render enabled loading-speed events during export.
 
 ## Environment Observed
 
