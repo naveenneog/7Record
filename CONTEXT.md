@@ -56,10 +56,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - The QPC project clock and source drift estimator normalize screen/audio/camera timestamps, ignore initial device offsets, and detect accumulated parts-per-million drift over one-hour tests.
 - Segmented recovery now atomically publishes project-local media, durably appends checksummed journal entries, tolerates only a corrupt crash tail, and reports missing, tampered, orphaned, and partial files without deleting evidence.
 - `SevenRecord.Media.Worker` performs real synthetic encoder initialization. On the current machine NVENC, Quick Sync, and AMF are listed but fail runtime initialization; `libx264` validates successfully and is selected as an explicit fallback.
+- The selected `GraphicsCaptureItem` now starts a free-threaded Direct3D 11 frame pool. An automated picker run captured a real Explorer frame, normalized its QPC time, stopped cleanly, and reported zero dropped frames.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: connect the selected `GraphicsCaptureItem` to a D3D11 frame session and feed timestamped frames toward the validated encoder/recovery boundaries.
+- Next feature: copy Direct3D surfaces into the isolated encoding path and publish the first recoverable screen segment.
 
 ## Environment Observed
 

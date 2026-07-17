@@ -8,6 +8,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Background="{StaticResource StudioBackgroundBrush}"
     Loaded="OnLoaded"
+    Unloaded="OnUnloaded"
     mc:Ignorable="d">
     <Grid>
         <Grid.RowDefinitions>
@@ -47,6 +48,7 @@
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     AutomationProperties.Name="Start a new recording"
+                    Click="OnStartRecordingClicked"
                     Content="New recording"
                     IsEnabled="False"
                     Style="{StaticResource AccentButtonStyle}" />
@@ -219,6 +221,14 @@
                                     x:Name="EncoderStatusText"
                                     Style="{StaticResource BodyTextStyle}"
                                     Text="Checking FFmpeg encoders..."
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Spacing="6">
+                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Frames" />
+                                <TextBlock
+                                    x:Name="FrameStatusText"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    Text="No active capture."
                                     TextWrapping="Wrap" />
                             </StackPanel>
                             <StackPanel Spacing="6">

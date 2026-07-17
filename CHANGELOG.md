@@ -19,6 +19,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added atomic segment publication, checksummed journal replay, corrupt-tail recovery, and orphan/tamper inspection.
 - Added the isolated media worker, real FFmpeg encoder enumeration, and deterministic hardware-to-software fallback selection.
 - Validated the current machine: NVENC, Quick Sync, and AMF are advertised but fail initialization; software `libx264` succeeds and is selected as fallback.
+- Added the first free-threaded Windows.Graphics.Capture frame pool, QPC frame timestamps, bounded processing queue, resize handling, frame-drop health, and a Direct3D readiness gate.
 
 ### Research
 

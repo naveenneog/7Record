@@ -20,6 +20,7 @@ public sealed partial class MainPage : Page
         new StorageReadinessProbe(),
         new EncoderReadinessProbe(),
     ]);
+    private WindowsScreenCaptureSession? _captureSession;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
 
@@ -36,6 +37,45 @@ public sealed partial class MainPage : Page
     private async void OnRefreshReadinessClicked(object sender, RoutedEventArgs e)
     {
         await RefreshReadinessAsync();
+    }
+
+    private async void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        await StopCaptureAsync();
+    }
+
+    private async void OnStartRecordingClicked(object sender, RoutedEventArgs e)
+    {
+        if (_captureSession is not null)
+        {
+            await StopCaptureAsync();
+            return;
+        }
+
+        if (_selectedScreen is null || _lastSnapshot?.CanRecord is not true)
+        {
+            UpdateReadinessSummary();
+            return;
+        }
+
+        ProjectClock projectClock = ProjectClock.StartNew();
+        WindowsScreenCaptureSession capture = WindowsScreenCaptureSession.Start(
+            _selectedScreen.Item,
+            projectClock,
+            static (frame, cancellationToken) => ValueTask.CompletedTask);
+        capture.HealthChanged += OnCaptureHealthChanged;
+        capture.CaptureClosed += OnCaptureClosed;
+        capture.CaptureFailed += OnCaptureFailed;
+        _captureSession = capture;
+
+        StartRecordingButton.Content = "Stop recording";
+        StartRecordingButton.IsEnabled = true;
+        ChooseSourceButton.IsEnabled = false;
+        RefreshReadinessButton.IsEnabled = false;
+        ReadinessInfoBar.Title = "Recording";
+        ReadinessInfoBar.Message = "Capturing timestamped Direct3D frames.";
+        ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
+        FrameStatusText.Text = "Waiting for the first frame...";
     }
 
     private async void OnChooseSourceClicked(object sender, RoutedEventArgs e)
@@ -83,7 +123,11 @@ public sealed partial class MainPage : Page
 
             if (_selectedScreen is null)
             {
-                ApplyStatus(ScreenStatusText, snapshot.Items.Single(item => item.Key == "screen"));
+                CaptureReadinessItem screen =
+                    snapshot.Items.Single(item => item.Key == "screen");
+                CaptureReadinessItem graphics =
+                    snapshot.Items.Single(item => item.Key == "graphics-device");
+                ScreenStatusText.Text = $"{screen.Message} {graphics.Message}";
             }
 
             ApplyStatus(CameraStatusText, snapshot.Items.Single(item => item.Key == "camera"));
@@ -118,6 +162,11 @@ public sealed partial class MainPage : Page
 
     private void UpdateReadinessSummary()
     {
+        if (_captureSession is not null)
+        {
+            return;
+        }
+
         if (_lastSnapshot is null)
         {
             StartRecordingButton.IsEnabled = false;
@@ -148,5 +197,57 @@ public sealed partial class MainPage : Page
         ReadinessInfoBar.Title = "Ready to record";
         ReadinessInfoBar.Message = "The selected source, audio, storage, and media checks passed.";
         ReadinessInfoBar.Severity = InfoBarSeverity.Success;
+    }
+
+    private void OnCaptureHealthChanged(CaptureFrameHealthSnapshot health)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            FrameStatusText.Text =
+                $"{health.FramesReceived:N0} frames, " +
+                $"{health.FramesDropped:N0} dropped, " +
+                $"{health.LastProjectTime:mm\\:ss\\.fff} elapsed.";
+        });
+    }
+
+    private void OnCaptureClosed() =>
+        DispatcherQueue.TryEnqueue(StopCaptureFromDispatcher);
+
+    private void OnCaptureFailed(Exception exception) =>
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            FrameStatusText.Text = $"Capture failed: {exception.Message}";
+            ReadinessInfoBar.Title = "Screen capture failed";
+            ReadinessInfoBar.Message = exception.Message;
+            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+        });
+
+    private async void StopCaptureFromDispatcher()
+    {
+        await StopCaptureAsync();
+    }
+
+    private async Task StopCaptureAsync()
+    {
+        WindowsScreenCaptureSession? capture = _captureSession;
+        if (capture is null)
+        {
+            return;
+        }
+
+        _captureSession = null;
+        capture.HealthChanged -= OnCaptureHealthChanged;
+        capture.CaptureClosed -= OnCaptureClosed;
+        capture.CaptureFailed -= OnCaptureFailed;
+        await capture.DisposeAsync();
+
+        CaptureFrameHealthSnapshot health = capture.Health;
+        FrameStatusText.Text =
+            $"Stopped after {health.FramesReceived:N0} frames; " +
+            $"{health.FramesDropped:N0} dropped.";
+        StartRecordingButton.Content = "New recording";
+        ChooseSourceButton.IsEnabled = true;
+        RefreshReadinessButton.IsEnabled = true;
+        UpdateReadinessSummary();
     }
 }
