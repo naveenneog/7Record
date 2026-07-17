@@ -64,10 +64,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Projects now persist `audio-timing.json`; the analysis layer generates reversible silence insertion and bounded playback-rate events from gaps and sustained drift.
 - Webcam capture is implemented as an independent QPC-timestamped MediaFrameReader/MP4 source with normalized presenter-layout metadata. Current redirected cameras provide no frames, so the UI keeps camera disabled without blocking screen/audio.
 - The recorder shell now lists recent projects and derives Ready, Recoverable, Needs Attention, or Corrupt state from journal replay and segment verification.
+- Selecting a recent project now opens the first editor timeline with independent screen/camera/microphone/system-audio clips and reversible repair/layout automation.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: expose recorded screen/audio/camera sources and repair events in the first editor timeline.
+- Next feature: add editor enable/disable controls and a preview/export render plan shared by the timeline.
 
 ## Environment Observed
 

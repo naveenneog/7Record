@@ -8,6 +8,8 @@ using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Camera.Windows;
 using SevenRecord.Domain.Projects;
+using SevenRecord.Domain.Timeline;
+using SevenRecord.Editor;
 using SevenRecord.Infrastructure;
 using SevenRecord.Media;
 using SevenRecord.Recording;
@@ -95,6 +97,43 @@ public sealed partial class MainPage : Page
     private async void OnRefreshProjectsClicked(object sender, RoutedEventArgs e)
     {
         await RefreshProjectsAsync();
+    }
+
+    private async void OnProjectItemClicked(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not ListViewItem { Tag: string projectPath })
+        {
+            return;
+        }
+
+        try
+        {
+            TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(projectPath);
+            TimelineProjectTitle.Text =
+                $"{Path.GetFileName(projectPath)}  |  {timeline.Duration:hh\\:mm\\:ss}";
+            TimelineItemsList.Items.Clear();
+            foreach (TimelineClip clip in timeline.Clips)
+            {
+                TimelineItemsList.Items.Add(
+                    $"{clip.Track}  |  {clip.Range.Start:hh\\:mm\\:ss\\.fff} - " +
+                    $"{clip.Range.End:hh\\:mm\\:ss\\.fff}  |  {clip.SourcePath}");
+            }
+
+            foreach (TimelineAutomationEvent automation in timeline.Automation)
+            {
+                TimelineItemsList.Items.Add(
+                    $"Automation -> {automation.TargetTrack}  |  {automation.Kind}  |  " +
+                    $"{automation.Description}");
+            }
+
+            TimelineSection.Visibility = Visibility.Visible;
+            TimelineSection.StartBringIntoView();
+        }
+        catch (Exception exception)
+        {
+            TimelineProjectTitle.Text = $"Timeline could not be loaded: {exception.Message}";
+            TimelineSection.Visibility = Visibility.Visible;
+        }
     }
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
@@ -488,10 +527,15 @@ public sealed partial class MainPage : Page
             foreach (ProjectSummary project in projects)
             {
                 RecentProjectsList.Items.Add(
-                    $"{project.RecoveryState}  |  {project.Name}  |  " +
-                    $"{project.Duration:hh\\:mm\\:ss}  |  " +
-                    $"{project.MediaSegments} source(s){Environment.NewLine}" +
-                    project.StatusMessage);
+                    new ListViewItem
+                    {
+                        Content =
+                            $"{project.RecoveryState}  |  {project.Name}  |  " +
+                            $"{project.Duration:hh\\:mm\\:ss}  |  " +
+                            $"{project.MediaSegments} source(s){Environment.NewLine}" +
+                            project.StatusMessage,
+                        Tag = project.Path,
+                    });
             }
 
             ProjectsEmptyText.Visibility = projects.Count == 0
