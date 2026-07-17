@@ -215,3 +215,12 @@ Core caption generation does not require sign-in or cloud upload. Larger models 
 **Date:** 2026-07-18
 
 Carry enabled timeline captions into the shared render plan. The isolated exporter generates a temporary SRT, burns it into the video with FFmpeg, and deletes the temporary file. Persistent SRT/VTT remain available as sidecar outputs.
+
+## D-025: Caption edit history
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Caption text and timing edits operate on immutable caption-document snapshots with undo/redo stacks. Every applied, undone, or redone state rewrites caption JSON and regenerates SRT/VTT atomically.
+
+Caption edits update the timeline/render plan but never change recorded audio.

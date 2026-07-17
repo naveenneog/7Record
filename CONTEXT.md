@@ -70,10 +70,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Export now applies mid-track silence repair non-destructively; a 200 ms event was measured as 199.865 ms in the final MP4.
 - Offline Whisper captions now generate versioned timeline segments plus SRT/VTT; the tiny model is cached under Local AppData and no audio is uploaded.
 - Enabled timeline captions are now burned into MP4 exports through a temporary worker-generated SRT while persistent SRT/VTT remain available.
+- Caption text and timing are editable in the timeline with undo/redo; each state regenerates JSON, SRT, and VTT without touching audio.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: add caption text/timing editing and timeline undo/redo.
+- Next feature: add automatic cursor metadata/zoom events and load them into the automation track.
 
 ## Environment Observed
 

@@ -45,6 +45,7 @@ public sealed partial class MainPage : Page
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
     private TimelineDocument? _currentTimeline;
+    private CaptionEditSession? _captionEditSession;
     private readonly HashSet<string> _disabledAutomation =
         new(StringComparer.Ordinal);
 
@@ -119,6 +120,7 @@ public sealed partial class MainPage : Page
             TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(projectPath);
             _currentTimeline = timeline;
             _disabledAutomation.Clear();
+            await LoadCaptionEditorAsync(projectPath);
             TimelineProjectTitle.Text =
                 $"{Path.GetFileName(projectPath)}  |  {timeline.Duration:hh\\:mm\\:ss}";
             TimelineItemsList.Items.Clear();
@@ -283,6 +285,8 @@ public sealed partial class MainPage : Page
             TimelineDocument refreshed =
                 await ProjectTimelineLoader.LoadAsync(_currentTimeline.ProjectPath);
             _currentTimeline = refreshed;
+            _captionEditSession = new CaptionEditSession(captions);
+            PopulateCaptionEditor();
             for (int index = TimelineItemsList.Items.Count - 1; index >= 0; index--)
             {
                 if (TimelineItemsList.Items[index] is string item &&
@@ -312,6 +316,60 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private void OnCaptionSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_captionEditSession is null ||
+            CaptionSelectorComboBox.SelectedItem is not ComboBoxItem { Tag: string id })
+        {
+            return;
+        }
+
+        CaptionSegment segment = _captionEditSession.Current.Segments
+            .Single(item => item.Id == id);
+        CaptionTextBox.Text = segment.Text;
+        CaptionStartNumberBox.Value = segment.Start.TotalSeconds;
+        CaptionEndNumberBox.Value = segment.End.TotalSeconds;
+    }
+
+    private async void OnApplyCaptionEditClicked(object sender, RoutedEventArgs e)
+    {
+        if (_captionEditSession is null ||
+            CaptionSelectorComboBox.SelectedItem is not ComboBoxItem { Tag: string id })
+        {
+            return;
+        }
+
+        try
+        {
+            _captionEditSession.UpdateCaption(
+                id,
+                CaptionTextBox.Text,
+                TimeSpan.FromSeconds(CaptionStartNumberBox.Value),
+                TimeSpan.FromSeconds(CaptionEndNumberBox.Value));
+            await PersistCaptionEditsAsync(id);
+        }
+        catch (Exception exception)
+        {
+            RenderPlanSummaryText.Text = $"Caption edit failed: {exception.Message}";
+        }
+    }
+
+    private async void OnUndoCaptionClicked(object sender, RoutedEventArgs e)
+    {
+        if (_captionEditSession?.Undo() is true)
+        {
+            await PersistCaptionEditsAsync();
+        }
+    }
+
+    private async void OnRedoCaptionClicked(object sender, RoutedEventArgs e)
+    {
+        if (_captionEditSession?.Redo() is true)
+        {
+            await PersistCaptionEditsAsync();
+        }
+    }
+
     private void UpdateRenderPlanSummary()
     {
         if (_currentTimeline is null ||
@@ -327,6 +385,104 @@ public sealed partial class MainPage : Page
             $"{plan.Clips.Count} source clips; " +
             $"{plan.Automation.Count} enabled automation events; " +
             $"{_currentTimeline.Captions.Count} captions.";
+    }
+
+    private async Task LoadCaptionEditorAsync(string projectPath)
+    {
+        string path = Path.Combine(projectPath, "captions.json");
+        if (!File.Exists(path))
+        {
+            _captionEditSession = null;
+            CaptionEditorPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        string json = await File.ReadAllTextAsync(path);
+        CaptionDocument? document = JsonSerializer.Deserialize<CaptionDocument>(
+            json,
+            RenderPlanSerializerOptions);
+        _captionEditSession = document is null ? null : new CaptionEditSession(document);
+        PopulateCaptionEditor();
+    }
+
+    private void PopulateCaptionEditor(string? selectedId = null)
+    {
+        CaptionSelectorComboBox.Items.Clear();
+        if (_captionEditSession is null ||
+            _captionEditSession.Current.Segments.Count == 0)
+        {
+            CaptionEditorPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        foreach (CaptionSegment segment in _captionEditSession.Current.Segments)
+        {
+            CaptionSelectorComboBox.Items.Add(
+                new ComboBoxItem
+                {
+                    Content =
+                        $"{segment.Start:mm\\:ss\\.fff}  {segment.Text}",
+                    Tag = segment.Id,
+                });
+        }
+
+        int selectedIndex = selectedId is null
+            ? 0
+            : _captionEditSession.Current.Segments
+                .Select((segment, index) => (segment, index))
+                .FirstOrDefault(item => item.segment.Id == selectedId)
+                .index;
+        CaptionSelectorComboBox.SelectedIndex = Math.Clamp(
+            selectedIndex,
+            0,
+            CaptionSelectorComboBox.Items.Count - 1);
+        CaptionEditorPanel.Visibility = Visibility.Visible;
+        UndoCaptionButton.IsEnabled = _captionEditSession.CanUndo;
+        RedoCaptionButton.IsEnabled = _captionEditSession.CanRedo;
+    }
+
+    private async Task PersistCaptionEditsAsync(string? selectedId = null)
+    {
+        if (_captionEditSession is null || _currentTimeline is null)
+        {
+            return;
+        }
+
+        CaptionDocument document = _captionEditSession.Current;
+        string path = Path.Combine(_currentTimeline.ProjectPath, "captions.json");
+        string temporaryPath = path + ".tmp";
+        await File.WriteAllTextAsync(
+            temporaryPath,
+            JsonSerializer.Serialize(document, RenderPlanSerializerOptions));
+        File.Move(temporaryPath, path, overwrite: true);
+        await File.WriteAllTextAsync(
+            Path.Combine(_currentTimeline.ProjectPath, "captions.srt"),
+            CaptionFormatter.ToSrt(document));
+        await File.WriteAllTextAsync(
+            Path.Combine(_currentTimeline.ProjectPath, "captions.vtt"),
+            CaptionFormatter.ToVtt(document));
+
+        _currentTimeline = await ProjectTimelineLoader.LoadAsync(
+            _currentTimeline.ProjectPath);
+        for (int index = TimelineItemsList.Items.Count - 1; index >= 0; index--)
+        {
+            if (TimelineItemsList.Items[index] is string item &&
+                item.StartsWith("Caption  |", StringComparison.Ordinal))
+            {
+                TimelineItemsList.Items.RemoveAt(index);
+            }
+        }
+
+        foreach (TimelineCaption caption in _currentTimeline.Captions)
+        {
+            TimelineItemsList.Items.Add(
+                $"Caption  |  {caption.Range.Start:hh\\:mm\\:ss\\.fff} - " +
+                $"{caption.Range.End:hh\\:mm\\:ss\\.fff}  |  {caption.Text}");
+        }
+
+        PopulateCaptionEditor(selectedId);
+        UpdateRenderPlanSummary();
+        RenderPlanSummaryText.Text += " Caption edits saved.";
     }
 
     private RenderPlan CurrentRenderPlan() =>
