@@ -181,3 +181,12 @@ The library reports evidence; it never deletes or silently repairs source files.
 Build the editor timeline from journaled source clips: screen, camera, microphone, and system audio remain independent tracks. Load `audio-repair-plan.json` and `presenter-layout.json` as enabled, reversible automation events.
 
 Preview and export must consume this same timeline document so automated edits can be disabled without touching source media.
+
+## D-021: Shared render plan
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Preview and export use one deterministic `RenderPlan`: canvas preset, immutable source clips, and only enabled automation events. Disabling an automatic edit removes it from the plan without changing the timeline source data.
+
+Initial framing presets are landscape 1920 x 1080, portrait 1080 x 1920, and square 1080 x 1080. Plans can be persisted as `render-plan.json`.

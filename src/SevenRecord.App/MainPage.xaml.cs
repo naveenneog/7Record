@@ -10,6 +10,7 @@ using SevenRecord.Camera.Windows;
 using SevenRecord.Domain.Projects;
 using SevenRecord.Domain.Timeline;
 using SevenRecord.Editor;
+using SevenRecord.Export;
 using SevenRecord.Infrastructure;
 using SevenRecord.Media;
 using SevenRecord.Recording;
@@ -19,6 +20,8 @@ namespace SevenRecord.App;
 public sealed partial class MainPage : Page
 {
     private static readonly JsonSerializerOptions AudioRepairSerializerOptions =
+        new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions RenderPlanSerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     private readonly CaptureReadinessService _readinessService = new(
@@ -39,6 +42,9 @@ public sealed partial class MainPage : Page
     private SurfaceScreenSegmentRecorder? _segmentRecorder;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
+    private TimelineDocument? _currentTimeline;
+    private readonly HashSet<string> _disabledAutomation =
+        new(StringComparer.Ordinal);
 
     public MainPage()
     {
@@ -109,6 +115,8 @@ public sealed partial class MainPage : Page
         try
         {
             TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(projectPath);
+            _currentTimeline = timeline;
+            _disabledAutomation.Clear();
             TimelineProjectTitle.Text =
                 $"{Path.GetFileName(projectPath)}  |  {timeline.Duration:hh\\:mm\\:ss}";
             TimelineItemsList.Items.Clear();
@@ -121,11 +129,20 @@ public sealed partial class MainPage : Page
 
             foreach (TimelineAutomationEvent automation in timeline.Automation)
             {
-                TimelineItemsList.Items.Add(
-                    $"Automation -> {automation.TargetTrack}  |  {automation.Kind}  |  " +
-                    $"{automation.Description}");
+                CheckBox toggle = new()
+                {
+                    Content =
+                        $"Automation -> {automation.TargetTrack}  |  {automation.Kind}  |  " +
+                        automation.Description,
+                    IsChecked = true,
+                    Tag = automation.Id,
+                };
+                toggle.Checked += OnAutomationToggled;
+                toggle.Unchecked += OnAutomationToggled;
+                TimelineItemsList.Items.Add(toggle);
             }
 
+            UpdateRenderPlanSummary();
             TimelineSection.Visibility = Visibility.Visible;
             TimelineSection.StartBringIntoView();
         }
@@ -135,6 +152,72 @@ public sealed partial class MainPage : Page
             TimelineSection.Visibility = Visibility.Visible;
         }
     }
+
+    private void OnAutomationToggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: string automationId } toggle)
+        {
+            return;
+        }
+
+        if (toggle.IsChecked is true)
+        {
+            _disabledAutomation.Remove(automationId);
+        }
+        else
+        {
+            _disabledAutomation.Add(automationId);
+        }
+
+        UpdateRenderPlanSummary();
+    }
+
+    private void OnRenderPresetChanged(object sender, SelectionChangedEventArgs e) =>
+        UpdateRenderPlanSummary();
+
+    private async void OnSaveRenderPlanClicked(object sender, RoutedEventArgs e)
+    {
+        if (_currentTimeline is null)
+        {
+            return;
+        }
+
+        RenderPlan plan = CurrentRenderPlan();
+        string path = Path.Combine(_currentTimeline.ProjectPath, "render-plan.json");
+        string temporaryPath = path + ".tmp";
+        string json = JsonSerializer.Serialize(plan, RenderPlanSerializerOptions);
+        await File.WriteAllTextAsync(temporaryPath, json);
+        File.Move(temporaryPath, path, overwrite: true);
+        RenderPlanSummaryText.Text += " Saved to render-plan.json.";
+    }
+
+    private void UpdateRenderPlanSummary()
+    {
+        if (_currentTimeline is null ||
+            RenderPlanSummaryText is null ||
+            RenderPresetComboBox is null)
+        {
+            return;
+        }
+
+        RenderPlan plan = CurrentRenderPlan();
+        RenderPlanSummaryText.Text =
+            $"{plan.Canvas.Width} × {plan.Canvas.Height}; " +
+            $"{plan.Clips.Count} source clips; " +
+            $"{plan.Automation.Count} enabled automation events.";
+    }
+
+    private RenderPlan CurrentRenderPlan() =>
+        RenderPlanBuilder.Build(
+            _currentTimeline ??
+                throw new InvalidOperationException("No timeline is selected."),
+            RenderPresetComboBox.SelectedIndex switch
+            {
+                1 => ExportAspectRatioPreset.Portrait1080p,
+                2 => ExportAspectRatioPreset.Square1080p,
+                _ => ExportAspectRatioPreset.Landscape1080p,
+            },
+            _disabledAutomation);
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {

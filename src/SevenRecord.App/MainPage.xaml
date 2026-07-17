@@ -296,6 +296,30 @@
                             x:Name="TimelineProjectTitle"
                             Style="{StaticResource BodyTextStyle}"
                             TextWrapping="Wrap" />
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox
+                                x:Name="RenderPresetComboBox"
+                                Header="Export framing"
+                                SelectedIndex="0"
+                                SelectionChanged="OnRenderPresetChanged">
+                                <ComboBoxItem Content="Landscape 1920 × 1080" />
+                                <ComboBoxItem Content="Portrait 1080 × 1920" />
+                                <ComboBoxItem Content="Square 1080 × 1080" />
+                            </ComboBox>
+                            <Button
+                                Grid.Column="1"
+                                VerticalAlignment="Bottom"
+                                Click="OnSaveRenderPlanClicked"
+                                Content="Save render plan" />
+                        </Grid>
+                        <TextBlock
+                            x:Name="RenderPlanSummaryText"
+                            Style="{StaticResource BodyTextStyle}"
+                            TextWrapping="Wrap" />
                         <ListView
                             x:Name="TimelineItemsList"
                             MaxHeight="420"
