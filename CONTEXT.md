@@ -54,10 +54,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - The secure Windows capture picker selects a display or application window; recording remains disabled until a target and all required checks are ready.
 - Packaged WinUI runtime validation exposed and fixed two native-crash paths: direct FFmpeg execution in the UI process and WinRT device discovery on the STA thread.
 - The QPC project clock and source drift estimator normalize screen/audio/camera timestamps, ignore initial device offsets, and detect accumulated parts-per-million drift over one-hour tests.
+- Segmented recovery now atomically publishes project-local media, durably appends checksummed journal entries, tolerates only a corrupt crash tail, and reports missing, tampered, orphaned, and partial files without deleting evidence.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: connect the selected `GraphicsCaptureItem` to the first D3D11 frame pipeline using the accepted project clock.
+- Next feature: isolate FFmpeg encoder enumeration in a media worker and implement deterministic hardware/software fallback selection before connecting encoded output to recovery segments.
 
 ## Environment Observed
 
