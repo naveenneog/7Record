@@ -74,10 +74,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Cursor movement/click metadata and reversible zoom suggestions are implemented. The current remote desktop exposes no cursor, so the optional path awaits interactive-desktop validation.
 - Enabled cursor zoom suggestions now render through smooth time-based zoompan expressions before camera/caption composition.
 - Post-recording low-motion detection now creates reversible 4x loading/waiting suggestions and handles freezes that continue through EOF.
+- Enabled loading suggestions now retime composed video and mixed audio together; a 5.0-second fixture rendered to the expected 3.5 seconds.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: render enabled loading-speed events during export.
+- Next feature: add pause/resume and global recording shortcuts.
 
 ## Environment Observed
 

@@ -251,3 +251,12 @@ Disabling the event removes the zoom from the render plan without modifying scre
 Run low-motion detection in the isolated worker after screen publication. Intervals of at least two seconds become visible 4x speed suggestions with conservative confidence and remain disabled/resettable timeline automation.
 
 Freeze-through-end-of-file uses probed media duration. Future confidence combines interaction and audio inactivity.
+
+## D-029: Loading speed-up rendering
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Render enabled loading events by splitting composed video and mixed audio at the same source-time boundaries, applying matching PTS/atempo speed changes, and concatenating the segments. Adjust render-plan duration by the removed wait time.
+
+The source timeline remains unchanged when the event is disabled.

@@ -82,7 +82,7 @@ public sealed class RenderPlanBuilderTests
             [
                 new TimelineAutomationEvent(
                     "gap",
-                    "LoadingSpeed",
+                    "UnknownAutomation",
                     TimelineTrackKind.Screen,
                     TimelineRange.FromStartAndDuration(
                         TimeSpan.FromSeconds(1),
@@ -209,6 +209,46 @@ public sealed class RenderPlanBuilderTests
         StringAssert.Contains(command, "0.250000*iw");
         StringAssert.Contains(command, "0.750000*ih");
         StringAssert.Contains(command, "(1.8-1)");
+    }
+
+    [TestMethod]
+    public void LoadingSpeedRetimeVideoAudioAndPlanDuration()
+    {
+        TimelineAutomationEvent loading = new(
+            "loading",
+            "LoadingSpeed",
+            TimelineTrackKind.Screen,
+            TimelineRange.FromStartAndDuration(
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(2)),
+            "Speed up waiting to 4x",
+            true)
+        {
+            NumericData = new Dictionary<string, double> { ["speed"] = 4 },
+        };
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(5),
+            [
+                Clip("screen", TimelineTrackKind.Screen, "screen.mp4"),
+                Clip("mic", TimelineTrackKind.Microphone, "mic.wav")
+            ],
+            [loading]);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p);
+
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4").Arguments);
+
+        Assert.AreEqual(TimeSpan.FromSeconds(3.5), plan.Duration);
+        StringAssert.Contains(command, "setpts=(PTS-STARTPTS)/4.000000");
+        StringAssert.Contains(command, "atempo=2.000000,atempo=2.000000");
+        StringAssert.Contains(command, "concat=n=3:v=1:a=0");
+        StringAssert.Contains(command, "concat=n=3:v=0:a=1");
     }
 
     private static TimelineAutomationEvent Automation(string id) =>
