@@ -172,3 +172,12 @@ The project library derives state from journal replay and segment inspection:
 - **Corrupt:** the journal is invalid before its final line.
 
 The library reports evidence; it never deletes or silently repairs source files.
+
+## D-020: Timeline source model
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Build the editor timeline from journaled source clips: screen, camera, microphone, and system audio remain independent tracks. Load `audio-repair-plan.json` and `presenter-layout.json` as enabled, reversible automation events.
+
+Preview and export must consume this same timeline document so automated edits can be disabled without touching source media.

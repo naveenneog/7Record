@@ -276,6 +276,29 @@
                         <ListView
                             x:Name="RecentProjectsList"
                             MaxHeight="360"
+                            IsItemClickEnabled="True"
+                            ItemClick="OnProjectItemClicked"
+                            SelectionMode="None" />
+                    </StackPanel>
+                </Border>
+
+                <Border
+                    x:Name="TimelineSection"
+                    Padding="24"
+                    Background="{StaticResource StudioSurfaceBrush}"
+                    BorderBrush="{StaticResource StudioDividerBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Visibility="Collapsed">
+                    <StackPanel Spacing="16">
+                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Editor timeline" />
+                        <TextBlock
+                            x:Name="TimelineProjectTitle"
+                            Style="{StaticResource BodyTextStyle}"
+                            TextWrapping="Wrap" />
+                        <ListView
+                            x:Name="TimelineItemsList"
+                            MaxHeight="420"
                             SelectionMode="None" />
                     </StackPanel>
                 </Border>
