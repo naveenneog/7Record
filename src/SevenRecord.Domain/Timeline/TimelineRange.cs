@@ -1,9 +1,14 @@
+using System.Text.Json.Serialization;
+
 namespace SevenRecord.Domain.Timeline;
 
 public readonly record struct TimelineRange
 {
-    private TimelineRange(TimeSpan start, TimeSpan end)
+    [JsonConstructor]
+    public TimelineRange(TimeSpan start, TimeSpan end)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(start, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(end, start);
         Start = start;
         End = end;
     }

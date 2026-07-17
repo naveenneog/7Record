@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SevenRecord.Media\SevenRecord.Media.csproj" />
+    <ProjectReference Include="..\SevenRecord.Export\SevenRecord.Export.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

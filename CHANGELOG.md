@@ -30,6 +30,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added project discovery, journal/segment health inspection, recovery states, recent-project UI, and regression tests.
 - Added the first editor timeline loader and UI for independent source tracks, audio repair events, and presenter-layout automation.
 - Added shared preview/export render plans, landscape/portrait/square presets, automation toggles, persistence, and regression tests.
+- Added isolated render-plan MP4 export with screen framing, optional camera overlay, mixed normalized audio, worker invocation, UI export controls, and real-file validation.
 
 ### Research
 

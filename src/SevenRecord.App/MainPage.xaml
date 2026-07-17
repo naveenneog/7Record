@@ -316,6 +316,11 @@
                                 Click="OnSaveRenderPlanClicked"
                                 Content="Save render plan" />
                         </Grid>
+                        <Button
+                            x:Name="ExportMp4Button"
+                            HorizontalAlignment="Left"
+                            Click="OnExportMp4Clicked"
+                            Content="Export MP4" />
                         <TextBlock
                             x:Name="RenderPlanSummaryText"
                             Style="{StaticResource BodyTextStyle}"

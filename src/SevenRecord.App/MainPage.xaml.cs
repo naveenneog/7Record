@@ -182,13 +182,45 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        RenderPlan plan = CurrentRenderPlan();
-        string path = Path.Combine(_currentTimeline.ProjectPath, "render-plan.json");
-        string temporaryPath = path + ".tmp";
-        string json = JsonSerializer.Serialize(plan, RenderPlanSerializerOptions);
-        await File.WriteAllTextAsync(temporaryPath, json);
-        File.Move(temporaryPath, path, overwrite: true);
+        _ = await SaveRenderPlanAsync();
         RenderPlanSummaryText.Text += " Saved to render-plan.json.";
+    }
+
+    private async void OnExportMp4Clicked(object sender, RoutedEventArgs e)
+    {
+        if (_currentTimeline is null)
+        {
+            return;
+        }
+
+        ExportMp4Button.IsEnabled = false;
+        try
+        {
+            string renderPlanPath = await SaveRenderPlanAsync();
+            string exportsDirectory = Path.Combine(
+                _currentTimeline.ProjectPath,
+                "exports");
+            Directory.CreateDirectory(exportsDirectory);
+            string outputPath = Path.Combine(
+                exportsDirectory,
+                $"7record-{CurrentRenderPlan().Preset.ToString().ToLowerInvariant()}.mp4");
+            string workerPath = Path.Combine(
+                AppContext.BaseDirectory,
+                "MediaWorker",
+                "SevenRecord.Media.Worker.exe");
+            RenderPlanSummaryText.Text = "Exporting MP4...";
+            RenderPlanExportResult result = await MediaWorkerExportClient.ExportAsync(
+                workerPath,
+                renderPlanPath,
+                outputPath);
+            RenderPlanSummaryText.Text = result.Succeeded
+                ? $"Export complete: {result.OutputPath}"
+                : $"Export failed: {result.Error}";
+        }
+        finally
+        {
+            ExportMp4Button.IsEnabled = true;
+        }
     }
 
     private void UpdateRenderPlanSummary()
@@ -218,6 +250,17 @@ public sealed partial class MainPage : Page
                 _ => ExportAspectRatioPreset.Landscape1080p,
             },
             _disabledAutomation);
+
+    private async Task<string> SaveRenderPlanAsync()
+    {
+        RenderPlan plan = CurrentRenderPlan();
+        string path = Path.Combine(plan.ProjectPath, "render-plan.json");
+        string temporaryPath = path + ".tmp";
+        string json = JsonSerializer.Serialize(plan, RenderPlanSerializerOptions);
+        await File.WriteAllTextAsync(temporaryPath, json);
+        File.Move(temporaryPath, path, overwrite: true);
+        return path;
+    }
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
