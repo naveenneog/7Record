@@ -1,6 +1,7 @@
 using System.Text.Json;
 using SevenRecord.Domain.Audio;
 using SevenRecord.Domain.Captions;
+using SevenRecord.Domain.Input;
 using SevenRecord.Domain.Timeline;
 using SevenRecord.Domain.Video;
 using SevenRecord.Recording;
@@ -50,13 +51,27 @@ public sealed class ProjectTimelineLoaderTests
                                 TimeSpan.FromSeconds(2),
                                 "Hello")
                         ])));
+            await File.WriteAllTextAsync(
+                Path.Combine(project, "cursor-zoom-plan.json"),
+                JsonSerializer.Serialize(
+                    new[]
+                    {
+                        new CursorZoomEvent(
+                            "zoom",
+                            TimeSpan.FromSeconds(1),
+                            TimeSpan.FromSeconds(1.2),
+                            0.5,
+                            0.5,
+                            1.8,
+                            1)
+                    }));
 
             TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(project);
 
             Assert.HasCount(2, timeline.Clips);
             Assert.IsTrue(timeline.Clips.Any(clip => clip.Track is TimelineTrackKind.Screen));
             Assert.IsTrue(timeline.Clips.Any(clip => clip.Track is TimelineTrackKind.Microphone));
-            Assert.HasCount(2, timeline.Automation);
+            Assert.HasCount(3, timeline.Automation);
             Assert.HasCount(1, timeline.Captions);
             Assert.IsTrue(timeline.Automation.All(item => item.IsEnabled));
             Assert.AreEqual(TimeSpan.FromSeconds(5), timeline.Duration);

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using SevenRecord.Domain.Audio;
 using SevenRecord.Domain.Captions;
+using SevenRecord.Domain.Input;
 using SevenRecord.Domain.Timeline;
 using SevenRecord.Domain.Video;
 using SevenRecord.Recording;
@@ -96,6 +97,30 @@ public static class ProjectTimelineLoader
                         $"{layout.Mode} at {layout.X:P0}, {layout.Y:P0}",
                         true));
             }
+        }
+
+        string cursorZoomPath = Path.Combine(
+            fullProjectPath,
+            "cursor-zoom-plan.json");
+        if (File.Exists(cursorZoomPath))
+        {
+            string cursorJson = await File.ReadAllTextAsync(
+                cursorZoomPath,
+                cancellationToken);
+            CursorZoomEvent[] zooms =
+                JsonSerializer.Deserialize<CursorZoomEvent[]>(
+                    cursorJson,
+                    SerializerOptions) ?? [];
+            automation.AddRange(
+                zooms.Select(zoom => new TimelineAutomationEvent(
+                    zoom.Id,
+                    "CursorZoom",
+                    TimelineTrackKind.Screen,
+                    TimelineRange.FromStartAndDuration(
+                        zoom.Start,
+                        zoom.Duration),
+                    $"Zoom {zoom.Scale:F1}× at {zoom.CenterX:P0}, {zoom.CenterY:P0}",
+                    true)));
         }
 
         return new TimelineDocument(
