@@ -15,6 +15,7 @@
     <Project Path="src/SevenRecord.Recording/SevenRecord.Recording.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SevenRecord.Analysis.Tests/SevenRecord.Analysis.Tests.csproj" />
     <Project Path="tests/SevenRecord.Audio.Tests/SevenRecord.Audio.Tests.csproj" />
     <Project Path="tests/SevenRecord.Capture.Tests/SevenRecord.Capture.Tests.csproj" />
     <Project Path="tests/SevenRecord.Domain.Tests/SevenRecord.Domain.Tests.csproj" />

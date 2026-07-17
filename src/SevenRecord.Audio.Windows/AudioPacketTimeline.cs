@@ -5,7 +5,9 @@ namespace SevenRecord.Audio.Windows;
 public readonly record struct AudioPacketTiming(
     long SamplePosition,
     ClockDriftEstimate Drift,
-    bool HasDiscontinuity);
+    bool HasDiscontinuity,
+    TimeSpan? GapStart,
+    TimeSpan MissingDuration);
 
 public sealed class AudioPacketTimeline
 {
@@ -27,9 +29,22 @@ public sealed class AudioPacketTimeline
         {
             _samplePosition += frames;
             TimeSpan packetDuration = TimeSpan.FromSeconds(frames / (double)sampleRate);
-            bool hasDiscontinuity = _lastProjectTime is TimeSpan previous &&
-                projectTime - previous >
-                packetDuration + packetDuration + TimeSpan.FromMilliseconds(20);
+            TimeSpan? gapStart = null;
+            TimeSpan missingDuration = TimeSpan.Zero;
+            bool hasDiscontinuity = false;
+            if (_lastProjectTime is TimeSpan previous)
+            {
+                TimeSpan callbackInterval = projectTime - previous;
+                hasDiscontinuity =
+                    callbackInterval >
+                    packetDuration + packetDuration + TimeSpan.FromMilliseconds(20);
+                if (hasDiscontinuity)
+                {
+                    gapStart = previous + packetDuration;
+                    missingDuration = callbackInterval - packetDuration;
+                }
+            }
+
             _lastProjectTime = projectTime;
             ClockDriftEstimate drift = _drift.AddSample(
                 projectTime,
@@ -39,7 +54,9 @@ public sealed class AudioPacketTimeline
             return new AudioPacketTiming(
                 _samplePosition,
                 drift,
-                hasDiscontinuity);
+                hasDiscontinuity,
+                gapStart,
+                missingDuration);
         }
     }
 }

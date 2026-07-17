@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using SevenRecord.Analysis;
 using SevenRecord.Audio.Windows;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
@@ -12,6 +14,9 @@ namespace SevenRecord.App;
 
 public sealed partial class MainPage : Page
 {
+    private static readonly JsonSerializerOptions AudioRepairSerializerOptions =
+        new(JsonSerializerDefaults.Web) { WriteIndented = true };
+
     private readonly CaptureReadinessService _readinessService = new(
     [
         new WindowsCaptureReadinessProbe(
@@ -23,6 +28,7 @@ public sealed partial class MainPage : Page
         new EncoderReadinessProbe(),
     ]);
     private WindowsScreenCaptureSession? _captureSession;
+    private string? _activeProjectRoot;
     private RecoverableAudioRecordingSession? _audioRecorder;
     private SurfaceScreenSegmentRecorder? _segmentRecorder;
     private CaptureReadinessSnapshot? _lastSnapshot;
@@ -90,6 +96,7 @@ public sealed partial class MainPage : Page
             capture.CaptureFailed += OnCaptureFailed;
             _segmentRecorder = pendingSegmentRecorder;
             _audioRecorder = pendingAudioRecorder;
+            _activeProjectRoot = projectRoot;
             pendingSegmentRecorder = null;
             pendingAudioRecorder = null;
             _captureSession = capture;
@@ -292,8 +299,10 @@ public sealed partial class MainPage : Page
         CaptureFrameHealthSnapshot health = capture.Health;
         SurfaceScreenSegmentRecorder? segmentRecorder = _segmentRecorder;
         RecoverableAudioRecordingSession? audioRecorder = _audioRecorder;
+        string? projectRoot = _activeProjectRoot;
         _segmentRecorder = null;
         _audioRecorder = null;
+        _activeProjectRoot = null;
         if (audioRecorder is not null)
         {
             audioRecorder.HealthChanged -= OnAudioHealthChanged;
@@ -312,12 +321,20 @@ public sealed partial class MainPage : Page
                 AudioRecordingResult? audio = audioRecorder is null
                     ? null
                     : await audioRecorder.PublishAsync();
+                int repairEvents = 0;
+                if (audio is not null && projectRoot is not null)
+                {
+                    repairEvents = await SaveAudioRepairPlanAsync(
+                        projectRoot,
+                        audio.Timing);
+                }
                 FrameStatusText.Text =
                     $"Saved {health.FramesReceived:N0} captured frames to {segment.RelativePath}; " +
                     $"{health.FramesDropped:N0} dropped" +
                     (audio is null
                         ? "."
-                        : $"; audio saved to {audio.Microphone.RelativePath} and {audio.SystemAudio.RelativePath}.");
+                        : $"; audio saved to {audio.Microphone.RelativePath} and " +
+                          $"{audio.SystemAudio.RelativePath}; {repairEvents} timing repairs suggested.");
             }
             else
             {
@@ -375,5 +392,21 @@ public sealed partial class MainPage : Page
                 $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
                 $"{health.Discontinuities} discontinuities.";
         });
+    }
+
+    private static async Task<int> SaveAudioRepairPlanAsync(
+        string projectRoot,
+        SevenRecord.Domain.Audio.AudioTimingManifest timing)
+    {
+        IReadOnlyList<SevenRecord.Domain.Audio.AudioRepairEvent> repairs =
+            AudioRepairPlanner.CreatePlan(timing);
+        string path = Path.Combine(projectRoot, "audio-repair-plan.json");
+        string temporaryPath = path + ".tmp";
+        string json = JsonSerializer.Serialize(
+            repairs,
+            AudioRepairSerializerOptions);
+        await File.WriteAllTextAsync(temporaryPath, json);
+        File.Move(temporaryPath, path, overwrite: true);
+        return repairs.Count;
     }
 }

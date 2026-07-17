@@ -19,7 +19,9 @@ public sealed record AudioCapturePacket(
     int Channels,
     int BitsPerSample,
     ClockDriftEstimate Drift,
-    bool HasDiscontinuity);
+    bool HasDiscontinuity,
+    TimeSpan? GapStart,
+    TimeSpan MissingDuration);
 
 public sealed record AudioCaptureHealth(
     AudioCaptureSource Source,
@@ -27,6 +29,7 @@ public sealed record AudioCaptureHealth(
     long Bytes,
     long SamplePosition,
     long Discontinuities,
+    TimeSpan TotalMissingDuration,
     TimeSpan LastProjectTime,
     ClockDriftEstimate Drift);
 
@@ -159,6 +162,7 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
         if (timing.HasDiscontinuity)
         {
             Interlocked.Increment(ref source.Discontinuities);
+            Interlocked.Add(ref source.MissingTicks, timing.MissingDuration.Ticks);
         }
 
         long packets = Interlocked.Increment(ref source.Packets);
@@ -174,7 +178,9 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
                 format.Channels,
                 format.BitsPerSample,
                 timing.Drift,
-                timing.HasDiscontinuity));
+                timing.HasDiscontinuity,
+                timing.GapStart,
+                timing.MissingDuration));
 
         if (timing.HasDiscontinuity || packets % 16 == 0)
         {
@@ -185,6 +191,7 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
                     bytes,
                     timing.SamplePosition,
                     Interlocked.Read(ref source.Discontinuities),
+                    TimeSpan.FromTicks(Interlocked.Read(ref source.MissingTicks)),
                     projectTime,
                     timing.Drift));
         }
@@ -210,6 +217,8 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
         public long Bytes;
 
         public long Discontinuities;
+
+        public long MissingTicks;
 
         public long Packets;
 

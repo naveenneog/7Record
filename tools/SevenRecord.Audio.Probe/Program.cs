@@ -29,6 +29,9 @@ if (projectRoot is not null)
     {
         durationSeconds,
         projectRoot,
+        timingManifestPath = recordingResult.TimingManifestPath,
+        repairCandidates = SevenRecord.Analysis.AudioRepairPlanner.CreatePlan(
+            recordingResult.Timing).Count,
         microphone = CreateHealthResult(
             recordingResult.Microphone.RelativePath,
             health.GetValueOrDefault(AudioCaptureSource.Microphone)),
@@ -99,6 +102,7 @@ static object CreateHealthResult(string relativePath, AudioCaptureHealth? health
     driftPartsPerMillion = health?.Drift.PartsPerMillion ?? 0,
     observedSeconds = health?.Drift.ObservedDuration.TotalSeconds ?? 0,
     discontinuities = health?.Discontinuities ?? 0,
+    totalMissingMilliseconds = health?.TotalMissingDuration.TotalMilliseconds ?? 0,
 };
 
 static WaveOutEvent CreateTone()

@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SevenRecord.Audio.Windows\SevenRecord.Audio.Windows.csproj" />
     <ProjectReference Include="..\..\src\SevenRecord.Capture.Abstractions\SevenRecord.Capture.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\SevenRecord.Analysis\SevenRecord.Analysis.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

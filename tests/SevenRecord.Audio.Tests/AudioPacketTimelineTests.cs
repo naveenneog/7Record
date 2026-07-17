@@ -39,5 +39,7 @@ public sealed class AudioPacketTimelineTests
             sampleRate: 48_000);
 
         Assert.IsTrue(timing.HasDiscontinuity);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(40), timing.GapStart);
+        Assert.AreEqual(TimeSpan.FromMilliseconds(80), timing.MissingDuration);
     }
 }
