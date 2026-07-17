@@ -7,6 +7,7 @@ using SevenRecord.Audio.Windows;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Camera.Windows;
+using SevenRecord.Domain.Captions;
 using SevenRecord.Domain.Projects;
 using SevenRecord.Domain.Timeline;
 using SevenRecord.Editor;
@@ -14,6 +15,7 @@ using SevenRecord.Export;
 using SevenRecord.Infrastructure;
 using SevenRecord.Media;
 using SevenRecord.Recording;
+using SevenRecord.Transcription;
 
 namespace SevenRecord.App;
 
@@ -141,6 +143,12 @@ public sealed partial class MainPage : Page
                 toggle.Unchecked += OnAutomationToggled;
                 TimelineItemsList.Items.Add(toggle);
             }
+            foreach (TimelineCaption caption in timeline.Captions)
+            {
+                TimelineItemsList.Items.Add(
+                    $"Caption  |  {caption.Range.Start:hh\\:mm\\:ss\\.fff} - " +
+                    $"{caption.Range.End:hh\\:mm\\:ss\\.fff}  |  {caption.Text}");
+            }
 
             UpdateRenderPlanSummary();
             TimelineSection.Visibility = Visibility.Visible;
@@ -223,6 +231,87 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private async void OnGenerateCaptionsClicked(object sender, RoutedEventArgs e)
+    {
+        if (_currentTimeline is null)
+        {
+            return;
+        }
+
+        TimelineClip? microphone = _currentTimeline.Clips.FirstOrDefault(
+            clip => clip.Track is TimelineTrackKind.Microphone);
+        if (microphone is null)
+        {
+            RenderPlanSummaryText.Text = "Caption generation requires a microphone track.";
+            return;
+        }
+
+        GenerateCaptionsButton.IsEnabled = false;
+        try
+        {
+            RenderPlanSummaryText.Text =
+                "Generating captions locally. The first run downloads the Whisper tiny model.";
+            string modelPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "7Record",
+                "Models",
+                "ggml-tiny.bin");
+            string audioPath = Path.Combine(
+                _currentTimeline.ProjectPath,
+                microphone.SourcePath);
+            CaptionDocument captions = await Task.Run(
+                async () => await LocalWhisperTranscriber.TranscribeAsync(
+                    audioPath,
+                    modelPath,
+                    "auto"));
+            string captionPath = Path.Combine(
+                _currentTimeline.ProjectPath,
+                "captions.json");
+            string temporaryPath = captionPath + ".tmp";
+            string json = JsonSerializer.Serialize(
+                captions,
+                RenderPlanSerializerOptions);
+            await File.WriteAllTextAsync(temporaryPath, json);
+            File.Move(temporaryPath, captionPath, overwrite: true);
+            await File.WriteAllTextAsync(
+                Path.Combine(_currentTimeline.ProjectPath, "captions.srt"),
+                CaptionFormatter.ToSrt(captions));
+            await File.WriteAllTextAsync(
+                Path.Combine(_currentTimeline.ProjectPath, "captions.vtt"),
+                CaptionFormatter.ToVtt(captions));
+
+            TimelineDocument refreshed =
+                await ProjectTimelineLoader.LoadAsync(_currentTimeline.ProjectPath);
+            _currentTimeline = refreshed;
+            for (int index = TimelineItemsList.Items.Count - 1; index >= 0; index--)
+            {
+                if (TimelineItemsList.Items[index] is string item &&
+                    item.StartsWith("Caption  |", StringComparison.Ordinal))
+                {
+                    TimelineItemsList.Items.RemoveAt(index);
+                }
+            }
+
+            foreach (TimelineCaption caption in refreshed.Captions)
+            {
+                TimelineItemsList.Items.Add(
+                    $"Caption  |  {caption.Range.Start:hh\\:mm\\:ss\\.fff} - " +
+                    $"{caption.Range.End:hh\\:mm\\:ss\\.fff}  |  {caption.Text}");
+            }
+
+            RenderPlanSummaryText.Text =
+                $"Generated {captions.Segments.Count} caption segment(s); SRT and VTT saved.";
+        }
+        catch (Exception exception)
+        {
+            RenderPlanSummaryText.Text = $"Caption generation failed: {exception.Message}";
+        }
+        finally
+        {
+            GenerateCaptionsButton.IsEnabled = true;
+        }
+    }
+
     private void UpdateRenderPlanSummary()
     {
         if (_currentTimeline is null ||
@@ -236,7 +325,8 @@ public sealed partial class MainPage : Page
         RenderPlanSummaryText.Text =
             $"{plan.Canvas.Width} × {plan.Canvas.Height}; " +
             $"{plan.Clips.Count} source clips; " +
-            $"{plan.Automation.Count} enabled automation events.";
+            $"{plan.Automation.Count} enabled automation events; " +
+            $"{_currentTimeline.Captions.Count} captions.";
     }
 
     private RenderPlan CurrentRenderPlan() =>
