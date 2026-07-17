@@ -31,7 +31,8 @@ public static class FfmpegRenderPlanExporter
                 item.Kind is not "PresenterLayout" and
                 not nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.AdjustPlaybackRate) and
                 not nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.InsertSilence) and
-                not "CursorZoom")
+                not "CursorZoom" and
+                not "LoadingSpeed")
             .ToArray();
         if (unsupported.Length > 0)
         {
@@ -77,6 +78,13 @@ public static class FfmpegRenderPlanExporter
         int cameraIndex = camera is null ? -1 : inputs.IndexOf(camera);
         int microphoneIndex = microphone is null ? -1 : inputs.IndexOf(microphone);
         int systemAudioIndex = systemAudio is null ? -1 : inputs.IndexOf(systemAudio);
+        TimeSpan sourceDuration = plan.Clips.Count == 0
+            ? plan.Duration
+            : plan.Clips.Max(clip => clip.Range.End);
+        TimelineAutomationEvent[] loadingEvents = plan.Automation
+            .Where(item => item.Kind == "LoadingSpeed")
+            .OrderBy(item => item.Range.Start)
+            .ToArray();
         List<string> filters =
         [
             $"[{screenIndex}:v]scale={plan.Canvas.Width}:{plan.Canvas.Height}:" +
@@ -132,12 +140,19 @@ public static class FfmpegRenderPlanExporter
         if (!string.IsNullOrWhiteSpace(subtitlePath))
         {
             filters.Add(
-                $"[composite]subtitles='{EscapeFilterPath(subtitlePath)}'[video]");
+                $"[composite]subtitles='{EscapeFilterPath(subtitlePath)}'[visual]");
         }
         else
         {
-            filters.Add("[composite]null[video]");
+            filters.Add("[composite]null[visual]");
         }
+        AddSpeedFilters(
+            filters,
+            "visual",
+            "video",
+            loadingEvents,
+            sourceDuration,
+            isVideo: true);
 
         List<string> audioLabels = [];
         AddAudioFilter(
@@ -158,11 +173,21 @@ public static class FfmpegRenderPlanExporter
         {
             filters.Add(
                 $"{audioLabels[0]}{audioLabels[1]}" +
-                "amix=inputs=2:duration=longest:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11[audio]");
+                "amix=inputs=2:duration=longest:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11[mixed]");
         }
         else if (audioLabels.Count == 1)
         {
-            filters.Add($"{audioLabels[0]}loudnorm=I=-16:TP=-1.5:LRA=11[audio]");
+            filters.Add($"{audioLabels[0]}loudnorm=I=-16:TP=-1.5:LRA=11[mixed]");
+        }
+        if (audioLabels.Count > 0)
+        {
+            AddSpeedFilters(
+                filters,
+                "mixed",
+                "audio",
+                loadingEvents,
+                sourceDuration,
+                isVideo: false);
         }
 
         arguments.Add("-filter_complex");
@@ -414,6 +439,101 @@ public static class FfmpegRenderPlanExporter
             ? value
             : defaultValue;
 
+    private static void AddSpeedFilters(
+        List<string> filters,
+        string inputLabel,
+        string outputLabel,
+        TimelineAutomationEvent[] events,
+        TimeSpan sourceDuration,
+        bool isVideo)
+    {
+        if (events.Length == 0)
+        {
+            filters.Add(
+                isVideo
+                    ? $"[{inputLabel}]null[{outputLabel}]"
+                    : $"[{inputLabel}]anull[{outputLabel}]");
+            return;
+        }
+
+        List<SpeedSegment> segments = [];
+        TimeSpan cursor = TimeSpan.Zero;
+        foreach (TimelineAutomationEvent item in events)
+        {
+            double speed = ZoomValue(item, "speed", 4);
+            if (speed <= 1)
+            {
+                throw new InvalidOperationException(
+                    $"Loading speed must be greater than 1: {speed}.");
+            }
+
+            if (item.Range.Start < cursor || item.Range.End > sourceDuration)
+            {
+                throw new InvalidOperationException(
+                    "Loading-speed events overlap or exceed source duration.");
+            }
+
+            if (item.Range.Start > cursor)
+            {
+                segments.Add(new SpeedSegment(cursor, item.Range.Start, 1));
+            }
+
+            segments.Add(new SpeedSegment(item.Range.Start, item.Range.End, speed));
+            cursor = item.Range.End;
+        }
+
+        if (cursor < sourceDuration)
+        {
+            segments.Add(new SpeedSegment(cursor, sourceDuration, 1));
+        }
+
+        string splitOutputs = string.Concat(
+            Enumerable.Range(0, segments.Count)
+                .Select(index => $"[{outputLabel}source{index}]"));
+        filters.Add(
+            $"[{inputLabel}]{(isVideo ? "split" : "asplit")}={segments.Count}{splitOutputs}");
+        List<string> concatLabels = [];
+        for (int index = 0; index < segments.Count; index++)
+        {
+            SpeedSegment segment = segments[index];
+            string segmentLabel = $"{outputLabel}segment{index}";
+            string trim = isVideo ? "trim" : "atrim";
+            string timestamps = isVideo ? "setpts" : "asetpts";
+            string rateFilter = segment.Speed == 1
+                ? string.Empty
+                : isVideo
+                    ? $"/{Seconds(segment.Speed)}"
+                    : $",{AtempoChain(segment.Speed)}";
+            filters.Add(
+                $"[{outputLabel}source{index}]{trim}=start={Seconds(segment.Start.TotalSeconds)}:" +
+                $"end={Seconds(segment.End.TotalSeconds)},{timestamps}=(PTS-STARTPTS){rateFilter}" +
+                $"[{segmentLabel}]");
+            concatLabels.Add($"[{segmentLabel}]");
+        }
+
+        filters.Add(
+            $"{string.Concat(concatLabels)}concat=n={segments.Count}:" +
+            $"v={(isVideo ? 1 : 0)}:a={(isVideo ? 0 : 1)}[{outputLabel}]");
+    }
+
+    private static string AtempoChain(double speed)
+    {
+        List<string> filters = [];
+        double remaining = speed;
+        while (remaining > 2.000001)
+        {
+            filters.Add("atempo=2.000000");
+            remaining /= 2;
+        }
+
+        if (Math.Abs(remaining - 1) > 0.000001)
+        {
+            filters.Add($"atempo={Seconds(remaining)}");
+        }
+
+        return string.Join(",", filters);
+    }
+
     private static string EscapeFilterPath(string path) =>
         Path.GetFullPath(path)
             .Replace("\\", "/", StringComparison.Ordinal)
@@ -435,4 +555,9 @@ public static class FfmpegRenderPlanExporter
 
         return fullPath;
     }
+
+    private sealed record SpeedSegment(
+        TimeSpan Start,
+        TimeSpan End,
+        double Speed);
 }

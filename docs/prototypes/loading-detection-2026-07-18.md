@@ -16,3 +16,9 @@ A synthetic static 1280 x 720 clip produced:
 The detector probes media duration with FFprobe so a freeze that continues through end-of-file is closed correctly even when FFmpeg emits no `freeze_end`.
 
 These are conservative visual-change suggestions. Later scoring will combine pointer, keyboard, and audio inactivity before increasing confidence.
+
+## Export validation
+
+Enabled loading events are rendered by splitting synchronized video and mixed audio into normal/speed segments, retiming each segment, and concatenating them.
+
+A real five-second screen/audio fixture with a two-second 4x waiting interval produced an exact 3.500-second H.264/AAC MP4.
