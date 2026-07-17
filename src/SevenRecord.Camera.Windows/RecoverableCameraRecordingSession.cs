@@ -33,6 +33,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
     private readonly RecordingJournal _journal;
     private readonly string _layoutPath;
     private readonly PresenterLayoutSettings _layout;
+    private readonly RecordingPauseController _pauseController;
     private readonly SemaphoreSlim _processingGate = new(1, 1);
     private readonly ProjectClock _projectClock;
     private readonly RecordingSegmentPublisher _publisher;
@@ -54,6 +55,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         int width,
         int height,
         ProjectClock projectClock,
+        RecordingPauseController pauseController,
         MediaCapture capture,
         MediaFrameReader reader,
         CanvasDevice device,
@@ -66,6 +68,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         Width = width;
         Height = height;
         _projectClock = projectClock;
+        _pauseController = pauseController;
         _capture = capture;
         _reader = reader;
         _device = device;
@@ -88,11 +91,13 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
     public static async Task<RecoverableCameraRecordingSession> CreateAsync(
         string projectRoot,
         ProjectClock projectClock,
+        RecordingPauseController pauseController,
         PresenterLayoutSettings? layout = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
         ArgumentNullException.ThrowIfNull(projectClock);
+        ArgumentNullException.ThrowIfNull(pauseController);
         Directory.CreateDirectory(projectRoot);
 
         IReadOnlyList<MediaFrameSourceGroup> groups =
@@ -159,6 +164,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 width,
                 height,
                 projectClock,
+                pauseController,
                 capture,
                 reader,
                 device,
@@ -228,8 +234,8 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         }
 
         await _encoder.CompleteAsync();
-        _duration = QpcTimestamp.Now().SystemRelativeTime -
-            _projectClock.Origin.SystemRelativeTime;
+        _duration = _pauseController.Map(
+            _projectClock.Normalize(QpcTimestamp.Now()));
     }
 
     public async Task<CameraRecordingResult> PublishAsync(
@@ -294,6 +300,11 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
 
     private async void OnFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
     {
+        if (_pauseController.IsPaused)
+        {
+            return;
+        }
+
         if (!_processingGate.Wait(0))
         {
             Interlocked.Increment(ref _droppedFrames);
@@ -310,8 +321,8 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
 
             TimeSpan systemRelativeTime =
                 frame.SystemRelativeTime ?? QpcTimestamp.Now().SystemRelativeTime;
-            TimeSpan projectTime = _projectClock.NormalizeSystemRelativeTime(
-                systemRelativeTime);
+            TimeSpan projectTime = _pauseController.Map(
+                _projectClock.NormalizeSystemRelativeTime(systemRelativeTime));
             using CanvasBitmap cameraBitmap =
                 CanvasBitmap.CreateFromDirect3D11Surface(_device, surface);
             using (CanvasDrawingSession drawing = _renderTarget.CreateDrawingSession())

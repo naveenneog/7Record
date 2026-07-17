@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using NAudio.Wave;
 using SevenRecord.Capture.Abstractions;
@@ -27,7 +26,8 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
     private readonly WaveFileWriter _microphoneWriter;
     private readonly RecordingSegmentPublisher _publisher;
     private readonly string _projectRoot;
-    private readonly Stopwatch _recordingTime = Stopwatch.StartNew();
+    private readonly ProjectClock _projectClock;
+    private readonly RecordingPauseController _pauseController;
     private readonly object _systemAudioGate = new();
     private readonly string _systemAudioTemporaryPath;
     private readonly WaveFileWriter _systemAudioWriter;
@@ -39,9 +39,13 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
 
     private RecoverableAudioRecordingSession(
         string projectRoot,
-        SynchronizedAudioCaptureSession capture)
+        SynchronizedAudioCaptureSession capture,
+        ProjectClock projectClock,
+        RecordingPauseController pauseController)
     {
         _projectRoot = projectRoot;
+        _projectClock = projectClock;
+        _pauseController = pauseController;
         _capture = capture;
         _journal = new RecordingJournal(Path.Combine(projectRoot, "recording.journal"));
         _publisher = new RecordingSegmentPublisher(projectRoot, _journal);
@@ -62,17 +66,23 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
 
     public static RecoverableAudioRecordingSession Start(
         string projectRoot,
-        ProjectClock projectClock)
+        ProjectClock projectClock,
+        RecordingPauseController pauseController)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
         ArgumentNullException.ThrowIfNull(projectClock);
+        ArgumentNullException.ThrowIfNull(pauseController);
         Directory.CreateDirectory(projectRoot);
 
         SynchronizedAudioCaptureSession capture = new(projectClock);
         RecoverableAudioRecordingSession? session = null;
         try
         {
-            session = new RecoverableAudioRecordingSession(projectRoot, capture);
+            session = new RecoverableAudioRecordingSession(
+                projectRoot,
+                capture,
+                projectClock,
+                pauseController);
             capture.Start();
             return session;
         }
@@ -110,7 +120,6 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         }
 
         _stopped = true;
-        _recordingTime.Stop();
         await _capture.StopAsync(cancellationToken);
         _capture.PacketCaptured -= OnPacketCaptured;
         _capture.HealthChanged -= OnHealthChanged;
@@ -139,19 +148,21 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         }
 
         _completed = true;
+        TimeSpan duration = _pauseController.Map(
+            _projectClock.Normalize(QpcTimestamp.Now()));
         RecordingSegmentEntry microphone = await _publisher.PublishAsync(
             _microphoneTemporaryPath,
             sequence: 2,
             sourceId: "microphone",
             start: TimeSpan.Zero,
-            duration: _recordingTime.Elapsed,
+            duration,
             cancellationToken);
         RecordingSegmentEntry systemAudio = await _publisher.PublishAsync(
             _systemAudioTemporaryPath,
             sequence: 3,
             sourceId: "system-audio",
             start: TimeSpan.Zero,
-            duration: _recordingTime.Elapsed,
+            duration,
             cancellationToken);
         AudioTimingManifest timing = CreateTimingManifest();
         string timingManifestPath = Path.Combine(_projectRoot, "audio-timing.json");
@@ -193,6 +204,11 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
 
     private void OnPacketCaptured(AudioCapturePacket packet)
     {
+        if (_pauseController.IsPaused)
+        {
+            return;
+        }
+
         if (packet.Source is AudioCaptureSource.Microphone)
         {
             lock (_microphoneGate)

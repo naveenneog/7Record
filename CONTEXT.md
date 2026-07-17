@@ -75,10 +75,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Enabled cursor zoom suggestions now render through smooth time-based zoompan expressions before camera/caption composition.
 - Post-recording low-motion detection now creates reversible 4x loading/waiting suggestions and handles freezes that continue through EOF.
 - Enabled loading suggestions now retime composed video and mixed audio together; a 5.0-second fixture rendered to the expected 3.5 seconds.
+- Recording now pauses screen/audio/camera/cursor sampling and resumes on a gap-free active timeline; Ctrl+Shift+R/P work while the app is focused.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: add pause/resume and global recording shortcuts.
+- Next feature: register system-wide recording shortcuts and add shortcut-conflict feedback.
 
 ## Environment Observed
 

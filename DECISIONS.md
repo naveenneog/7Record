@@ -260,3 +260,12 @@ Freeze-through-end-of-file uses probed media duration. Future confidence combine
 Render enabled loading events by splitting composed video and mixed audio at the same source-time boundaries, applying matching PTS/atempo speed changes, and concatenating the segments. Adjust render-plan duration by the removed wait time.
 
 The source timeline remains unchanged when the event is disabled.
+
+## D-030: Pause active-time mapping
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Pause does not stop the project clock. A shared pause controller maps raw QPC time to active recording time, skips screen/audio/camera/cursor samples while paused, and removes the pause gap from resumed timestamps and journal duration.
+
+Ctrl+Shift+R and Ctrl+Shift+P are initial in-app accelerators. System-wide registration is a separate permission/lifecycle feature.

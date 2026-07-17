@@ -44,6 +44,8 @@ public sealed partial class MainPage : Page
     private RecoverableCameraRecordingSession? _cameraRecorder;
     private bool _cameraEnabled;
     private CursorMetadataRecorder? _cursorRecorder;
+    private ProjectClock? _recordingClock;
+    private RecordingPauseController? _pauseController;
     private SurfaceScreenSegmentRecorder? _segmentRecorder;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
@@ -71,7 +73,10 @@ public sealed partial class MainPage : Page
         {
             ProjectClock clock = ProjectClock.StartNew();
             await using RecoverableCameraRecordingSession camera =
-                await RecoverableCameraRecordingSession.CreateAsync(probeRoot, clock);
+                await RecoverableCameraRecordingSession.CreateAsync(
+                    probeRoot,
+                    clock,
+                    new RecordingPauseController());
             _cameraEnabled = true;
             CameraStatusText.Text =
                 $"{camera.DeviceName} ({camera.Width} x {camera.Height}) is ready.";
@@ -101,6 +106,32 @@ public sealed partial class MainPage : Page
     private async void OnRefreshReadinessClicked(object sender, RoutedEventArgs e)
     {
         await RefreshReadinessAsync();
+    }
+
+    private void OnPauseRecordingClicked(object sender, RoutedEventArgs e)
+    {
+        if (_captureSession is null ||
+            _recordingClock is null ||
+            _pauseController is null)
+        {
+            return;
+        }
+
+        TimeSpan rawTime = _recordingClock.Normalize(QpcTimestamp.Now());
+        if (_pauseController.IsPaused)
+        {
+            _pauseController.Resume(rawTime);
+            PauseRecordingButton.Content = "Pause";
+            ReadinessInfoBar.Title = "Recording";
+            ReadinessInfoBar.Message = "Recording resumed.";
+        }
+        else
+        {
+            _pauseController.Pause(rawTime);
+            PauseRecordingButton.Content = "Resume";
+            ReadinessInfoBar.Title = "Paused";
+            ReadinessInfoBar.Message = "Screen and audio samples are paused.";
+        }
     }
 
     private void OnProjectsClicked(object sender, RoutedEventArgs e) =>
@@ -543,9 +574,12 @@ public sealed partial class MainPage : Page
         {
             string projectRoot = CreateProjectRoot();
             ProjectClock projectClock = ProjectClock.StartNew();
+            RecordingPauseController pauseController = new();
             try
             {
-                pendingCursorRecorder = CursorMetadataRecorder.Start(projectClock);
+                pendingCursorRecorder = CursorMetadataRecorder.Start(
+                    projectClock,
+                    pauseController);
             }
             catch (InvalidOperationException exception)
             {
@@ -554,17 +588,21 @@ public sealed partial class MainPage : Page
             pendingSegmentRecorder = await SurfaceScreenSegmentRecorder.CreateAsync(
                 projectRoot,
                 _selectedScreen.Width,
-                _selectedScreen.Height);
+                _selectedScreen.Height,
+                projectClock,
+                pauseController);
             pendingAudioRecorder = RecoverableAudioRecordingSession.Start(
                 projectRoot,
-                projectClock);
+                projectClock,
+                pauseController);
             pendingAudioRecorder.HealthChanged += OnAudioHealthChanged;
             if (_cameraEnabled)
             {
                 pendingCameraRecorder =
                     await RecoverableCameraRecordingSession.CreateAsync(
                         projectRoot,
-                        projectClock);
+                        projectClock,
+                        pauseController);
             }
             WindowsScreenCaptureSession capture = WindowsScreenCaptureSession.Start(
                 _selectedScreen.Item,
@@ -578,6 +616,8 @@ public sealed partial class MainPage : Page
             _cameraRecorder = pendingCameraRecorder;
             _cursorRecorder = pendingCursorRecorder;
             _activeProjectRoot = projectRoot;
+            _recordingClock = projectClock;
+            _pauseController = pauseController;
             pendingSegmentRecorder = null;
             pendingAudioRecorder = null;
             pendingCameraRecorder = null;
@@ -586,6 +626,8 @@ public sealed partial class MainPage : Page
 
             StartRecordingButton.Content = "Stop recording";
             StartRecordingButton.IsEnabled = true;
+            PauseRecordingButton.Content = "Pause";
+            PauseRecordingButton.IsEnabled = true;
             ChooseSourceButton.IsEnabled = false;
             RefreshReadinessButton.IsEnabled = false;
             ReadinessInfoBar.Title = "Recording";
@@ -749,10 +791,12 @@ public sealed partial class MainPage : Page
     {
         DispatcherQueue.TryEnqueue(() =>
         {
+            TimeSpan displayedTime = _pauseController?.Map(health.LastProjectTime) ??
+                health.LastProjectTime;
             FrameStatusText.Text =
                 $"{health.FramesReceived:N0} frames, " +
                 $"{health.FramesDropped:N0} dropped, " +
-                $"{health.LastProjectTime:mm\\:ss\\.fff} elapsed.";
+                $"{displayedTime:mm\\:ss\\.fff} elapsed.";
         });
     }
 
@@ -798,6 +842,8 @@ public sealed partial class MainPage : Page
         _cameraRecorder = null;
         _cursorRecorder = null;
         _activeProjectRoot = null;
+        _recordingClock = null;
+        _pauseController = null;
         if (audioRecorder is not null)
         {
             audioRecorder.HealthChanged -= OnAudioHealthChanged;
@@ -908,6 +954,8 @@ public sealed partial class MainPage : Page
         }
 
         StartRecordingButton.Content = "New recording";
+        PauseRecordingButton.Content = "Pause";
+        PauseRecordingButton.IsEnabled = false;
         ChooseSourceButton.IsEnabled = true;
         RefreshReadinessButton.IsEnabled = true;
         if (ReadinessInfoBar.Severity is not InfoBarSeverity.Error)

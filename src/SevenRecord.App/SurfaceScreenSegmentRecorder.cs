@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Media.Windows;
 using SevenRecord.Recording;
@@ -12,8 +12,9 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
 
     private readonly Direct3DSurfaceVideoEncoder _encoder;
     private readonly RecordingJournal _journal;
+    private readonly RecordingPauseController _pauseController;
+    private readonly ProjectClock _projectClock;
     private readonly RecordingSegmentPublisher _publisher;
-    private readonly Stopwatch _recordingTime = Stopwatch.StartNew();
     private readonly string _temporaryPath;
     private bool _completed;
 
@@ -21,11 +22,15 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         Direct3DSurfaceVideoEncoder encoder,
         RecordingJournal journal,
         RecordingSegmentPublisher publisher,
+        ProjectClock projectClock,
+        RecordingPauseController pauseController,
         string temporaryPath)
     {
         _encoder = encoder;
         _journal = journal;
         _publisher = publisher;
+        _projectClock = projectClock;
+        _pauseController = pauseController;
         _temporaryPath = temporaryPath;
     }
 
@@ -33,9 +38,13 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         string projectRoot,
         int width,
         int height,
+        ProjectClock projectClock,
+        RecordingPauseController pauseController,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
+        ArgumentNullException.ThrowIfNull(projectClock);
+        ArgumentNullException.ThrowIfNull(pauseController);
         Directory.CreateDirectory(projectRoot);
 
         string temporaryPath = Path.Combine(projectRoot, "temp", "screen.partial.mp4");
@@ -56,6 +65,8 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
                 encoder,
                 journal,
                 publisher,
+                projectClock,
+                pauseController,
                 temporaryPath);
         }
         catch
@@ -67,11 +78,18 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
 
     public ValueTask ProcessFrameAsync(
         ScreenCaptureFrameLease frame,
-        CancellationToken cancellationToken) =>
-        _encoder.ProcessSurfaceAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_pauseController.IsPaused)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        return _encoder.ProcessSurfaceAsync(
             frame.Surface,
-            frame.ProjectTime,
+            _pauseController.Map(frame.ProjectTime),
             cancellationToken);
+    }
 
     public async Task<RecordingSegmentEntry> CompleteAsync()
     {
@@ -81,14 +99,14 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         }
 
         _completed = true;
-        _recordingTime.Stop();
         await _encoder.CompleteAsync();
+        TimeSpan rawDuration = _projectClock.Normalize(QpcTimestamp.Now());
         return await _publisher.PublishAsync(
             _temporaryPath,
             sequence: 1,
             sourceId: "screen",
             start: TimeSpan.Zero,
-            duration: _recordingTime.Elapsed);
+            duration: _pauseController.Map(rawDuration));
     }
 
     public async ValueTask DisposeAsync()

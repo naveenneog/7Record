@@ -15,6 +15,7 @@ public sealed class CursorMetadataRecorder : IAsyncDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private readonly List<CursorMetadataEvent> _events = [];
     private readonly object _gate = new();
+    private readonly RecordingPauseController _pauseController;
     private readonly ProjectClock _projectClock;
     private readonly Task _samplingTask;
     private bool _leftWasDown;
@@ -22,22 +23,28 @@ public sealed class CursorMetadataRecorder : IAsyncDisposable
     private TimeSpan _lastMoveTime;
     private bool _rightWasDown;
 
-    private CursorMetadataRecorder(ProjectClock projectClock)
+    private CursorMetadataRecorder(
+        ProjectClock projectClock,
+        RecordingPauseController pauseController)
     {
         _projectClock = projectClock;
+        _pauseController = pauseController;
         _samplingTask = Task.Run(SampleAsync);
     }
 
-    public static CursorMetadataRecorder Start(ProjectClock projectClock)
+    public static CursorMetadataRecorder Start(
+        ProjectClock projectClock,
+        RecordingPauseController pauseController)
     {
         ArgumentNullException.ThrowIfNull(projectClock);
+        ArgumentNullException.ThrowIfNull(pauseController);
         if (!GetCursorPos(out POINT initialPoint))
         {
             throw new InvalidOperationException(
                 "Windows cursor position is unavailable in the current desktop session.");
         }
 
-        CursorMetadataRecorder recorder = new(projectClock)
+        CursorMetadataRecorder recorder = new(projectClock, pauseController)
         {
             _lastPoint = initialPoint,
         };
@@ -92,6 +99,11 @@ public sealed class CursorMetadataRecorder : IAsyncDisposable
 
     private void Sample()
     {
+        if (_pauseController.IsPaused)
+        {
+            return;
+        }
+
         if (!GetCursorPos(out POINT point))
         {
             return;
@@ -116,7 +128,8 @@ public sealed class CursorMetadataRecorder : IAsyncDisposable
                 0,
                 1)
             : 0;
-        TimeSpan projectTime = _projectClock.Normalize(QpcTimestamp.Now());
+        TimeSpan projectTime = _pauseController.Map(
+            _projectClock.Normalize(QpcTimestamp.Now()));
 
         bool leftDown = (GetAsyncKeyState(LeftButton) & 0x8000) != 0;
         bool rightDown = (GetAsyncKeyState(RightButton) & 0x8000) != 0;
