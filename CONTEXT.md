@@ -44,6 +44,17 @@ Two restarted research agents were cancelled without findings. Broad parallel we
 
 The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11, WASAPI, Media Foundation, a supervised FFmpeg worker, and MSIX. See `DECISIONS.md` D-005 through D-008.
 
+## Current Implementation State
+
+- `SevenRecord.slnx` contains the WinUI application, domain and platform modules, and MSTest projects described in the architecture report.
+- `src/SevenRecord.App` builds against .NET 10 and Windows App SDK 2.3.1.
+- The initial focused recorder workspace renders successfully as a packaged WinUI app.
+- Domain timeline ranges and the 2-10 second recording segment policy have regression tests.
+- Verified commands:
+  - `dotnet build SevenRecord.slnx --configuration Debug`
+  - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
+- Next feature: wire the capture-readiness model to real screen, camera, microphone, system-audio, storage, and encoder probes.
+
 ## Environment Observed
 
 - Working directory: `C:\Users\navg\DailyApps\7Record`
@@ -119,7 +130,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - [x] Complete and save technical architecture research.
 - [x] Select stack and update `DECISIONS.md`.
 - [x] Initialize repository and commit foundation docs.
-- [ ] Scaffold desktop app and automated tests.
+- [x] Scaffold desktop app and automated tests.
 - [ ] Build capture source selection and readiness UI.
 - [ ] Implement screen capture.
 - [ ] Implement mic/system audio capture.

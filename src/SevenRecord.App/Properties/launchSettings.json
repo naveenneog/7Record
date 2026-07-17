@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "SevenRecord.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "SevenRecord.App (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

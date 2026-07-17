@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SevenRecord.Analysis/SevenRecord.Analysis.csproj" />
+    <Project Path="src/SevenRecord.App/SevenRecord.App.csproj" />
+    <Project Path="src/SevenRecord.Capture.Abstractions/SevenRecord.Capture.Abstractions.csproj" />
+    <Project Path="src/SevenRecord.Capture.Windows/SevenRecord.Capture.Windows.csproj" />
+    <Project Path="src/SevenRecord.Domain/SevenRecord.Domain.csproj" />
+    <Project Path="src/SevenRecord.Editor/SevenRecord.Editor.csproj" />
+    <Project Path="src/SevenRecord.Export/SevenRecord.Export.csproj" />
+    <Project Path="src/SevenRecord.Infrastructure/SevenRecord.Infrastructure.csproj" />
+    <Project Path="src/SevenRecord.Media/SevenRecord.Media.csproj" />
+    <Project Path="src/SevenRecord.Recording/SevenRecord.Recording.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SevenRecord.Domain.Tests/SevenRecord.Domain.Tests.csproj" />
+    <Project Path="tests/SevenRecord.Recording.Tests/SevenRecord.Recording.Tests.csproj" />
+  </Folder>
+</Solution>

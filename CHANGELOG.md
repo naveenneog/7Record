@@ -10,6 +10,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Seeded the visual design system in `DESIGN.md`.
 - Added durable restart/resume context in `CONTEXT.md`.
 - Added the initial architecture decision log in `DECISIONS.md`.
+- Scaffolded the .NET 10 / WinUI 3 solution with the accepted module boundaries.
+- Added the first recorder workspace shell, domain timeline primitives, segment policy, and automated tests.
 
 ### Research
 
