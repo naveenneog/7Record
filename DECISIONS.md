@@ -104,3 +104,12 @@ A user preference moves its encoder to the front but does not disable fallback. 
 Use a free-threaded `Direct3D11CaptureFramePool` with three buffers. Frame callbacks normalize `SystemRelativeTime` through the project QPC clock and enqueue at most three disposable frame leases for a single asynchronous processor.
 
 When processing falls behind, new frames are dropped and counted rather than blocking capture. Size changes drop the transition frame and recreate the pool only after queued leases drain. Frame surfaces remain valid only for the lifetime of their lease.
+
+## D-013: First screen segment path
+
+**Status:** Accepted as prototype  
+**Date:** 2026-07-17
+
+The first recoverable path copies BGRA pixels from each leased Direct3D surface, keeps the latest image in a 30 fps pacer, streams frames to the packaged media worker, and encodes a Matroska/H.264 temporary file. On stop, the file is published through D-010.
+
+This CPU-readback path is accepted only as a correctness prototype. It must be benchmarked against the 1080p60 CPU/drop targets and replaced with GPU sharing or a native hardware encoder path if it cannot meet them.

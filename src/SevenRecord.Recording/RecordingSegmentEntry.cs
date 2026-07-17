@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SevenRecord.Recording;
 
 public sealed record RecordingSegmentEntry(
@@ -10,7 +12,9 @@ public sealed record RecordingSegmentEntry(
     long Length,
     string Sha256)
 {
+    [JsonIgnore]
     public TimeSpan Start => TimeSpan.FromTicks(StartTicks);
 
+    [JsonIgnore]
     public TimeSpan Duration => TimeSpan.FromTicks(DurationTicks);
 }
