@@ -17,6 +17,8 @@
             <Color x:Key="StudioMutedColor">#FFB2AAB0</Color>
             <Color x:Key="RecordColor">#FF9B3C68</Color>
             <Color x:Key="AutomationColor">#FF45BFD2</Color>
+            <Color x:Key="WarningColor">#FFE9B44C</Color>
+            <Color x:Key="DangerColor">#FFE06464</Color>
 
             <SolidColorBrush x:Key="StudioBackgroundBrush" Color="{StaticResource StudioBackgroundColor}" />
             <SolidColorBrush x:Key="StudioSurfaceBrush" Color="{StaticResource StudioSurfaceColor}" />
@@ -26,6 +28,8 @@
             <SolidColorBrush x:Key="StudioMutedBrush" Color="{StaticResource StudioMutedColor}" />
             <SolidColorBrush x:Key="RecordBrush" Color="{StaticResource RecordColor}" />
             <SolidColorBrush x:Key="AutomationBrush" Color="{StaticResource AutomationColor}" />
+            <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+            <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
 
             <FontFamily x:Key="DisplayFont">Aptos Display</FontFamily>
             <FontFamily x:Key="BodyFont">Aptos</FontFamily>

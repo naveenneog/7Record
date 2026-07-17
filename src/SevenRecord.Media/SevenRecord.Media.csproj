@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SevenRecord.Domain\SevenRecord.Domain.csproj" />
+    <ProjectReference Include="..\SevenRecord.Capture.Abstractions\SevenRecord.Capture.Abstractions.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

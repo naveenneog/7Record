@@ -50,10 +50,13 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - `src/SevenRecord.App` builds against .NET 10 and Windows App SDK 2.3.1.
 - The initial focused recorder workspace renders successfully as a packaged WinUI app.
 - Domain timeline ranges and the 2-10 second recording segment policy have regression tests.
+- Capture readiness now checks screen-capture support, camera, microphone, system audio, storage, and FFmpeg availability without blocking the UI thread.
+- The secure Windows capture picker selects a display or application window; recording remains disabled until a target and all required checks are ready.
+- Packaged WinUI runtime validation exposed and fixed two native-crash paths: direct FFmpeg execution in the UI process and WinRT device discovery on the STA thread.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: wire the capture-readiness model to real screen, camera, microphone, system-audio, storage, and encoder probes.
+- Next feature: implement the QPC capture clock and synchronization prototype, then connect the selected `GraphicsCaptureItem` to the first frame pipeline.
 
 ## Environment Observed
 
@@ -131,7 +134,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - [x] Select stack and update `DECISIONS.md`.
 - [x] Initialize repository and commit foundation docs.
 - [x] Scaffold desktop app and automated tests.
-- [ ] Build capture source selection and readiness UI.
+- [x] Build capture source selection and readiness UI.
 - [ ] Implement screen capture.
 - [ ] Implement mic/system audio capture.
 - [ ] Implement webcam capture and presenter layouts.
