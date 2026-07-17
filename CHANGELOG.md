@@ -34,6 +34,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added mid-track silence repair export and verified a requested 200 ms gap within 0.2 ms.
 - Added offline Whisper caption generation, cached local model download, timeline captions, JSON/SRT/VTT output, UI controls, and formatter tests.
 - Added caption-aware render plans and verified subtitle burn-in through the isolated MP4 worker.
+- Added caption text/timing editing, atomic persistence, and undo/redo controls with regression tests.
 
 ### Research
 

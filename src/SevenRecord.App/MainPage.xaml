@@ -326,6 +326,50 @@
                             HorizontalAlignment="Left"
                             Click="OnGenerateCaptionsClicked"
                             Content="Generate local captions" />
+                        <StackPanel
+                            x:Name="CaptionEditorPanel"
+                            Spacing="10"
+                            Visibility="Collapsed">
+                            <ComboBox
+                                x:Name="CaptionSelectorComboBox"
+                                Header="Caption segment"
+                                SelectionChanged="OnCaptionSelectionChanged" />
+                            <TextBox
+                                x:Name="CaptionTextBox"
+                                Header="Caption text"
+                                AcceptsReturn="True"
+                                TextWrapping="Wrap" />
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <NumberBox
+                                    x:Name="CaptionStartNumberBox"
+                                    Header="Start seconds"
+                                    Minimum="0"
+                                    SmallChange="0.1" />
+                                <NumberBox
+                                    x:Name="CaptionEndNumberBox"
+                                    Grid.Column="1"
+                                    Header="End seconds"
+                                    Minimum="0"
+                                    SmallChange="0.1" />
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Click="OnApplyCaptionEditClicked" Content="Apply caption edit" />
+                                <Button
+                                    x:Name="UndoCaptionButton"
+                                    Click="OnUndoCaptionClicked"
+                                    Content="Undo"
+                                    IsEnabled="False" />
+                                <Button
+                                    x:Name="RedoCaptionButton"
+                                    Click="OnRedoCaptionClicked"
+                                    Content="Redo"
+                                    IsEnabled="False" />
+                            </StackPanel>
+                        </StackPanel>
                         <TextBlock
                             x:Name="RenderPlanSummaryText"
                             Style="{StaticResource BodyTextStyle}"
