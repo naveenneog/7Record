@@ -15,6 +15,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added live readiness checks for Windows screen capture, camera, microphone, system audio, storage, and FFmpeg encoders.
 - Wired readiness state into the recorder workspace with explicit blocking reasons and regression tests.
 - Added the secure Windows display/window picker and require a selected capture target before recording can start.
+- Added the QPC project clock, cross-frequency normalization, and source drift estimator with one-hour synchronization tests.
 
 ### Research
 
