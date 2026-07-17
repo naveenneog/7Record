@@ -22,7 +22,7 @@ public sealed partial class MainPage : Page
         new EncoderReadinessProbe(),
     ]);
     private WindowsScreenCaptureSession? _captureSession;
-    private ScreenSegmentRecorder? _segmentRecorder;
+    private SurfaceScreenSegmentRecorder? _segmentRecorder;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
 
@@ -65,26 +65,12 @@ public sealed partial class MainPage : Page
         ReadinessInfoBar.Message = "Validating the isolated media worker.";
         ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
 
-        ScreenSegmentRecorder? pendingSegmentRecorder = null;
+        SurfaceScreenSegmentRecorder? pendingSegmentRecorder = null;
         try
         {
-            string workerPath = Path.Combine(
-                AppContext.BaseDirectory,
-                "MediaWorker",
-                "SevenRecord.Media.Worker.exe");
-            FfmpegEncoderProbeResult probe =
-                await MediaWorkerEncoderProbeClient.ProbeAsync(workerPath);
-            if (!probe.Succeeded || probe.Selection is null)
-            {
-                throw new InvalidOperationException(
-                    probe.Error ?? "No working H.264 encoder is available.");
-            }
-
             string projectRoot = CreateProjectRoot();
-            pendingSegmentRecorder = ScreenSegmentRecorder.Start(
+            pendingSegmentRecorder = await SurfaceScreenSegmentRecorder.CreateAsync(
                 projectRoot,
-                workerPath,
-                probe.Selection,
                 _selectedScreen.Width,
                 _selectedScreen.Height);
             ProjectClock projectClock = ProjectClock.StartNew();
@@ -104,9 +90,7 @@ public sealed partial class MainPage : Page
             ChooseSourceButton.IsEnabled = false;
             RefreshReadinessButton.IsEnabled = false;
             ReadinessInfoBar.Title = "Recording";
-            ReadinessInfoBar.Message =
-                $"Capturing with {probe.Selection.FfmpegName}" +
-                (probe.Selection.IsFallback ? " fallback." : ".");
+            ReadinessInfoBar.Message = "Capturing Direct3D surfaces with Media Foundation.";
             ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
             FrameStatusText.Text = "Waiting for the first frame...";
         }
@@ -119,6 +103,9 @@ public sealed partial class MainPage : Page
 
             System.Diagnostics.Debug.WriteLine(exception);
             StartRecordingButton.IsEnabled = true;
+            FrameStatusText.Text =
+                $"Recording start failed: {exception.GetType().Name} " +
+                $"0x{exception.HResult:X8}: {exception.Message}";
             ReadinessInfoBar.Title = "Recording could not start";
             ReadinessInfoBar.Message = exception.Message;
             ReadinessInfoBar.Severity = InfoBarSeverity.Error;
@@ -289,7 +276,7 @@ public sealed partial class MainPage : Page
         await capture.DisposeAsync();
 
         CaptureFrameHealthSnapshot health = capture.Health;
-        ScreenSegmentRecorder? segmentRecorder = _segmentRecorder;
+        SurfaceScreenSegmentRecorder? segmentRecorder = _segmentRecorder;
         _segmentRecorder = null;
         if (segmentRecorder is not null)
         {

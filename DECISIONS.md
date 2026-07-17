@@ -122,3 +122,12 @@ This CPU-readback path is accepted only as a correctness prototype. It must be b
 The benchmark in `docs/prototypes/capture-performance-2026-07-18.md` measured 1.42 CPU cores and 1.55 GB combined working set at 1.60 MP and 13.71 source fps. Although it produced zero drops and a 180 ms duration error, it did not approach 60 source fps.
 
 Keep BGRA readback only as a diagnostic/compatibility fallback. The production path must share Direct3D surfaces with Media Foundation or a narrow native encoder bridge and must be re-benchmarked at 1080p60.
+
+## D-015: Direct3D surface encoding
+
+**Status:** Accepted as production architecture; release gate open  
+**Date:** 2026-07-18
+
+Create `MediaStreamSample` objects directly from leased Direct3D 11 surfaces and feed them through `MediaStreamSource` to a hardware-enabled `MediaTranscoder`. Keep the capture-frame lease alive until the sample's `Processed` event.
+
+The prototype produced a recoverable 874 x 1980 H.264 MP4 with zero drops and reduced combined working set from 1.55 GB to 559 MB. CPU remained near 1.45 cores because the reference machine fell back to software encoding. Release still requires a true 1080p60 hardware-encoder benchmark.

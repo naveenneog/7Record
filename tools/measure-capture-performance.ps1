@@ -3,6 +3,8 @@ param(
     [string]$Configuration = "Debug",
     [string]$SourceWindowTitle = "Android Emulator - actioncut_test:5554",
     [switch]$AttachExisting,
+    [switch]$UseExistingSelection,
+    [switch]$PreserveSourceSize,
     [string]$OutputPath = ""
 )
 
@@ -27,6 +29,9 @@ public static class SevenRecordNativeMouse
 
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int command);
 
     [DllImport("user32.dll")]
     public static extern bool SetWindowPos(
@@ -194,48 +199,56 @@ try {
         $refreshReadiness.Current.IsEnabled
     } | Out-Null
     Close-CapturePickers
+    [SevenRecordNativeMouse]::ShowWindow(
+        [IntPtr]$appProcess.MainWindowHandle,
+        9) | Out-Null
     [SevenRecordNativeMouse]::SetForegroundWindow(
         [IntPtr]$appProcess.MainWindowHandle) | Out-Null
     Start-Sleep -Milliseconds 500
-    $chooseSource = Find-DescendantByAutomationId -Root $app -AutomationId "ChooseSourceButton"
-    Invoke-Element $chooseSource
+    if (-not $UseExistingSelection) {
+        $chooseSource = Find-DescendantByAutomationId -Root $app -AutomationId "ChooseSourceButton"
+        Wait-Until -TimeoutSeconds 15 -FailureMessage "Choose source button did not become available." -Condition {
+            $chooseSource.Current.IsEnabled
+        } | Out-Null
+        Invoke-Element $chooseSource
 
-    $picker = Wait-Until -TimeoutSeconds 10 -FailureMessage "Windows capture picker did not open." -Condition {
-        (Get-CapturePickerWindows | Select-Object -First 1)
-    }
-
-    $listCondition = New-Object System.Windows.Automation.PropertyCondition(
-        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-        [System.Windows.Automation.ControlType]::ListItem)
-    $listItems = Wait-Until -TimeoutSeconds 15 -FailureMessage "Capture picker targets did not load." -Condition {
-        $items = $picker.FindAll(
-            [System.Windows.Automation.TreeScope]::Descendants,
-            $listCondition)
-        if ($items.Count -gt 1) { $items } else { $null }
-    }
-    $target = $null
-    for ($index = 0; $index -lt $listItems.Count; $index++) {
-        $candidate = $listItems.Item($index)
-        if ($candidate.Current.Name -like "$targetTitle*") {
-            $target = $candidate
-            break
+        $picker = Wait-Until -TimeoutSeconds 30 -FailureMessage "Windows capture picker did not open." -Condition {
+            (Get-CapturePickerWindows | Select-Object -First 1)
         }
-    }
-    if (-not $target) {
-        $availableNames = for ($index = 0; $index -lt $listItems.Count; $index++) {
-            $listItems.Item($index).Current.Name
-        }
-        throw "Benchmark source was not listed in the capture picker. Available: $($availableNames -join ' | ')"
-    }
 
-    $selection = [System.Windows.Automation.SelectionItemPattern]$target.GetCurrentPattern(
-        [System.Windows.Automation.SelectionItemPattern]::Pattern)
-    $selection.Select()
-    $accept = Find-DescendantByAutomationId -Root $picker -AutomationId "AcceptButton"
-    Invoke-Element $accept
-    Wait-Until -TimeoutSeconds 10 -FailureMessage "Windows capture picker did not close." -Condition {
-        @(Get-CapturePickerWindows).Count -eq 0
-    } | Out-Null
+        $listCondition = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::ListItem)
+        $listItems = Wait-Until -TimeoutSeconds 15 -FailureMessage "Capture picker targets did not load." -Condition {
+            $items = $picker.FindAll(
+                [System.Windows.Automation.TreeScope]::Descendants,
+                $listCondition)
+            if ($items.Count -gt 1) { $items } else { $null }
+        }
+        $target = $null
+        for ($index = 0; $index -lt $listItems.Count; $index++) {
+            $candidate = $listItems.Item($index)
+            if ($candidate.Current.Name -like "$targetTitle*") {
+                $target = $candidate
+                break
+            }
+        }
+        if (-not $target) {
+            $availableNames = for ($index = 0; $index -lt $listItems.Count; $index++) {
+                $listItems.Item($index).Current.Name
+            }
+            throw "Benchmark source was not listed in the capture picker. Available: $($availableNames -join ' | ')"
+        }
+
+        $selection = [System.Windows.Automation.SelectionItemPattern]$target.GetCurrentPattern(
+            [System.Windows.Automation.SelectionItemPattern]::Pattern)
+        $selection.Select()
+        $accept = Find-DescendantByAutomationId -Root $picker -AutomationId "AcceptButton"
+        Invoke-Element $accept
+        Wait-Until -TimeoutSeconds 10 -FailureMessage "Windows capture picker did not close." -Condition {
+            @(Get-CapturePickerWindows).Count -eq 0
+        } | Out-Null
+    }
 
     $startRecording = Find-DescendantByAutomationId -Root $app -AutomationId "StartRecordingButton"
     try {
@@ -256,15 +269,17 @@ try {
         }
         throw "Recording button did not become ready. Screen: '$($screenStatus.Current.Name)'. UI: $($textNames -join ' | ')"
     }
-    [SevenRecordNativeMouse]::SetWindowPos(
-        $sourceWindowHandle,
-        [IntPtr]::Zero,
-        0,
-        0,
-        1080,
-        1920,
-        0x0044) | Out-Null
-    Start-Sleep -Seconds 1
+    if (-not $PreserveSourceSize) {
+        [SevenRecordNativeMouse]::SetWindowPos(
+            $sourceWindowHandle,
+            [IntPtr]::Zero,
+            0,
+            0,
+            1080,
+            1920,
+            0x0044) | Out-Null
+        Start-Sleep -Seconds 1
+    }
     Invoke-Element $startRecording
     $frameStatus = Find-DescendantByAutomationId -Root $app -AutomationId "FrameStatusText"
 
@@ -338,8 +353,12 @@ try {
         throw "No benchmark project was created."
     }
 
-    $segment = Get-ChildItem (Join-Path $project.FullName "segments") -Recurse -Filter *.mkv |
+    $segment = Get-ChildItem (Join-Path $project.FullName "segments") -Recurse -File |
+        Where-Object Extension -in @(".mkv", ".mp4") |
         Select-Object -First 1
+    if (-not $segment) {
+        throw "No encoded benchmark segment was created."
+    }
     $probe = ffprobe `
         -v error `
         -show_entries "stream=codec_name,width,height,avg_frame_rate" `
@@ -396,7 +415,7 @@ finally {
             Stop-Process -Id $lateAppProcess.Id -ErrorAction SilentlyContinue
         }
     }
-    if ($sourceWindowHandle -ne [IntPtr]::Zero) {
+    if (-not $PreserveSourceSize -and $sourceWindowHandle -ne [IntPtr]::Zero) {
         [SevenRecordNativeMouse]::SetWindowPos(
             $sourceWindowHandle,
             [IntPtr]::Zero,

@@ -52,6 +52,8 @@ public sealed class RecordingRecoveryTests
 
         string partialPath = System.IO.Path.Combine(project.Path, "temp", "unfinished.partial");
         await File.WriteAllTextAsync(partialPath, "unfinished");
+        string partialMp4Path = System.IO.Path.Combine(project.Path, "temp", "screen.partial.mp4");
+        await File.WriteAllTextAsync(partialMp4Path, "unfinished-video");
 
         RecordingRecoveryService recovery = new(project.Path, journal);
         RecordingRecoveryReport report = await recovery.InspectAsync();
@@ -59,6 +61,6 @@ public sealed class RecordingRecoveryTests
         Assert.AreEqual(entry, report.CorruptSegments.Single());
         Assert.IsEmpty(report.RecoveredSegments);
         Assert.HasCount(1, report.OrphanFiles);
-        Assert.HasCount(1, report.TemporaryFiles);
+        Assert.HasCount(2, report.TemporaryFiles);
     }
 }
