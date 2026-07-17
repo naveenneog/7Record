@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="SevenRecord.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:SevenRecord.App">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+            <Color x:Key="StudioBackgroundColor">#FF121112</Color>
+            <Color x:Key="StudioSurfaceColor">#FF1D1A1C</Color>
+            <Color x:Key="StudioRaisedColor">#FF292529</Color>
+            <Color x:Key="StudioDividerColor">#FF443D42</Color>
+            <Color x:Key="StudioInkColor">#FFF8F4F6</Color>
+            <Color x:Key="StudioMutedColor">#FFB2AAB0</Color>
+            <Color x:Key="RecordColor">#FF9B3C68</Color>
+            <Color x:Key="AutomationColor">#FF45BFD2</Color>
+
+            <SolidColorBrush x:Key="StudioBackgroundBrush" Color="{StaticResource StudioBackgroundColor}" />
+            <SolidColorBrush x:Key="StudioSurfaceBrush" Color="{StaticResource StudioSurfaceColor}" />
+            <SolidColorBrush x:Key="StudioRaisedBrush" Color="{StaticResource StudioRaisedColor}" />
+            <SolidColorBrush x:Key="StudioDividerBrush" Color="{StaticResource StudioDividerColor}" />
+            <SolidColorBrush x:Key="StudioInkBrush" Color="{StaticResource StudioInkColor}" />
+            <SolidColorBrush x:Key="StudioMutedBrush" Color="{StaticResource StudioMutedColor}" />
+            <SolidColorBrush x:Key="RecordBrush" Color="{StaticResource RecordColor}" />
+            <SolidColorBrush x:Key="AutomationBrush" Color="{StaticResource AutomationColor}" />
+
+            <FontFamily x:Key="DisplayFont">Aptos Display</FontFamily>
+            <FontFamily x:Key="BodyFont">Aptos</FontFamily>
+
+            <Style x:Key="PageTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+                <Setter Property="FontSize" Value="30" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{StaticResource StudioInkBrush}" />
+            </Style>
+
+            <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+                <Setter Property="FontSize" Value="18" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{StaticResource StudioInkBrush}" />
+            </Style>
+
+            <Style x:Key="BodyTextStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+                <Setter Property="FontSize" Value="16" />
+                <Setter Property="LineHeight" Value="24" />
+                <Setter Property="Foreground" Value="{StaticResource StudioMutedBrush}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

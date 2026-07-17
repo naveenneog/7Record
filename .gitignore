@@ -1,0 +1,50 @@
+## .NET / Visual Studio
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+artifacts/
+
+## Build logs and test results
+[Ll]og/
+[Ll]ogs/
+*.log
+*.binlog
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+
+## NuGet and packages
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+project.lock.json
+
+## MSIX and publish output
+AppPackages/
+BundleArtifacts/
+*.msix
+*.msixupload
+*.appx
+*.appxbundle
+*.appxupload
+publish/
+*.pubxml
+PublishScripts/
+
+## IDE and analysis tools
+_ReSharper*/
+*.DotSettings.user
+*.dotCover
+.idea/
+
+## Autoresearch session artifacts
+results.tsv
+run.log

@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="SevenRecord.App.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:SevenRecord.App"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="{StaticResource StudioBackgroundBrush}"
+    mc:Ignorable="d">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="64" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="224" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border
+            Grid.ColumnSpan="2"
+            Padding="24,0"
+            Background="{StaticResource StudioSurfaceBrush}"
+            BorderBrush="{StaticResource StudioDividerBrush}"
+            BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="10">
+                    <Ellipse
+                        Width="12"
+                        Height="12"
+                        Fill="{StaticResource RecordBrush}" />
+                    <TextBlock
+                        FontFamily="{StaticResource DisplayFont}"
+                        FontSize="19"
+                        FontWeight="SemiBold"
+                        Foreground="{StaticResource StudioInkBrush}"
+                        Text="7Record" />
+                </StackPanel>
+                <Button
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Start a new recording"
+                    Content="New recording"
+                    Style="{StaticResource AccentButtonStyle}" />
+            </Grid>
+        </Border>
+
+        <Border
+            Grid.Row="1"
+            Padding="16,24"
+            Background="{StaticResource StudioSurfaceBrush}"
+            BorderBrush="{StaticResource StudioDividerBrush}"
+            BorderThickness="0,0,1,0">
+            <StackPanel Spacing="8">
+                <Button
+                    HorizontalContentAlignment="Left"
+                    AutomationProperties.Name="Open recorder"
+                    Content="Recorder"
+                    Style="{StaticResource DefaultButtonStyle}" />
+                <Button
+                    HorizontalContentAlignment="Left"
+                    AutomationProperties.Name="Open projects"
+                    Content="Projects"
+                    Style="{StaticResource DefaultButtonStyle}" />
+                <Button
+                    HorizontalContentAlignment="Left"
+                    AutomationProperties.Name="Open settings"
+                    Content="Settings"
+                    Style="{StaticResource DefaultButtonStyle}" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer
+            Grid.Row="1"
+            Grid.Column="1"
+            HorizontalScrollMode="Disabled"
+            VerticalScrollBarVisibility="Auto">
+            <StackPanel
+                MaxWidth="1120"
+                Padding="40,36,40,56"
+                HorizontalAlignment="Stretch"
+                Spacing="28">
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource PageTitleStyle}" Text="Create a focused recording" />
+                    <TextBlock
+                        MaxWidth="720"
+                        HorizontalAlignment="Left"
+                        Style="{StaticResource BodyTextStyle}"
+                        Text="Choose your sources, verify capture health, and record screen-led content that is ready for a smart first edit."
+                        TextWrapping="Wrap" />
+                </StackPanel>
+
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border
+                        Padding="20"
+                        Background="{StaticResource StudioSurfaceBrush}"
+                        BorderBrush="{StaticResource StudioDividerBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Screen" />
+                            <TextBlock Style="{StaticResource BodyTextStyle}" Text="No display or window selected." TextWrapping="Wrap" />
+                            <Button HorizontalAlignment="Left" Content="Choose source" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        Grid.Column="1"
+                        Padding="20"
+                        Background="{StaticResource StudioSurfaceBrush}"
+                        BorderBrush="{StaticResource StudioDividerBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Camera" />
+                            <TextBlock Style="{StaticResource BodyTextStyle}" Text="Camera is optional for screen-only recordings." TextWrapping="Wrap" />
+                            <Button HorizontalAlignment="Left" Content="Configure camera" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        Grid.Column="2"
+                        Padding="20"
+                        Background="{StaticResource StudioSurfaceBrush}"
+                        BorderBrush="{StaticResource StudioDividerBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                        <StackPanel Spacing="10">
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Audio" />
+                            <TextBlock Style="{StaticResource BodyTextStyle}" Text="Microphone and system audio are checked independently." TextWrapping="Wrap" />
+                            <Button HorizontalAlignment="Left" Content="Configure audio" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border
+                        MinHeight="360"
+                        Background="#FF080808"
+                        BorderBrush="{StaticResource StudioDividerBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12">
+                        <StackPanel
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="10">
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                Style="{StaticResource SectionTitleStyle}"
+                                Text="Preview" />
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                Style="{StaticResource BodyTextStyle}"
+                                Text="Your selected screen and presenter layout will appear here." />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        Grid.Column="1"
+                        Padding="22"
+                        Background="{StaticResource StudioRaisedBrush}"
+                        BorderBrush="{StaticResource StudioDividerBrush}"
+                        BorderThickness="1"
+                        CornerRadius="12">
+                        <StackPanel Spacing="18">
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Recording health" />
+                            <StackPanel Spacing="6">
+                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Storage" />
+                                <TextBlock Style="{StaticResource BodyTextStyle}" Text="Checking available space..." />
+                            </StackPanel>
+                            <StackPanel Spacing="6">
+                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Encoder" />
+                                <TextBlock Style="{StaticResource BodyTextStyle}" Text="Capability probe not started." />
+                            </StackPanel>
+                            <StackPanel Spacing="6">
+                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Recovery" />
+                                <TextBlock Style="{StaticResource BodyTextStyle}" Text="Segments will be finalized during recording." TextWrapping="Wrap" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>
