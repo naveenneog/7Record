@@ -17,7 +17,10 @@ if (projectRoot is not null)
 {
     ConcurrentDictionary<AudioCaptureSource, AudioCaptureHealth> health = new();
     await using RecoverableAudioRecordingSession recording =
-        RecoverableAudioRecordingSession.Start(projectRoot, clock);
+        RecoverableAudioRecordingSession.Start(
+            projectRoot,
+            clock,
+            new RecordingPauseController());
     recording.HealthChanged += snapshot => health[snapshot.Source] = snapshot;
 
     toneOutput.Play();

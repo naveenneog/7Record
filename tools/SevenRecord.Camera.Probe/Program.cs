@@ -40,7 +40,10 @@ try
 {
     ProjectClock clock = ProjectClock.StartNew();
     await using RecoverableCameraRecordingSession camera =
-        await RecoverableCameraRecordingSession.CreateAsync(projectRoot, clock);
+        await RecoverableCameraRecordingSession.CreateAsync(
+            projectRoot,
+            clock,
+            new RecordingPauseController());
     await Task.Delay(TimeSpan.FromSeconds(durationSeconds));
     CameraRecordingResult result = await camera.CompleteAsync();
 

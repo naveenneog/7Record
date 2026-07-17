@@ -39,6 +39,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added structured cursor zoom render-plan metadata and verified time/center-aware zoompan MP4 export.
 - Added isolated low-motion loading detection, EOF interval handling, persisted 4x speed suggestions, timeline loading, and tests.
 - Added synchronized video/audio loading speed-up export and verified an exact 5.0-to-3.5-second render.
+- Added active-time pause/resume mapping across screen/audio/camera/cursor paths, UI controls, keyboard accelerators, and tests.
 
 ### Research
 

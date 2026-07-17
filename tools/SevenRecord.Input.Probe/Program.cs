@@ -15,7 +15,9 @@ Directory.CreateDirectory(projectRoot);
 ProjectClock clock = ProjectClock.StartNew();
 try
 {
-    await using CursorMetadataRecorder recorder = CursorMetadataRecorder.Start(clock);
+    await using CursorMetadataRecorder recorder = CursorMetadataRecorder.Start(
+        clock,
+        new RecordingPauseController());
     await Task.Delay(TimeSpan.FromSeconds(2));
     CursorMetadataDocument document = await recorder.CompleteAsync(projectRoot);
     IReadOnlyList<CursorZoomEvent> zooms = CursorZoomPlanner.CreatePlan(document);
