@@ -1,6 +1,7 @@
 using System.Threading.Channels;
-using SevenRecord.Capture.Windows;
+using System.Runtime.InteropServices;
 using Windows.Foundation;
+using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
 using Windows.Media.Transcoding;
@@ -105,8 +106,9 @@ public sealed class Direct3DSurfaceVideoEncoder : IAsyncDisposable
         return encoder;
     }
 
-    public async ValueTask ProcessFrameAsync(
-        ScreenCaptureFrameLease frame,
+    public async ValueTask ProcessSurfaceAsync(
+        IDirect3DSurface surface,
+        TimeSpan projectTime,
         CancellationToken cancellationToken)
     {
         if (_completed)
@@ -115,10 +117,12 @@ public sealed class Direct3DSurfaceVideoEncoder : IAsyncDisposable
         }
 
         TaskCompletionSource processed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        _firstTimestamp ??= frame.ProjectTime;
-        TimeSpan sampleTime = frame.ProjectTime - _firstTimestamp.Value;
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentOutOfRangeException.ThrowIfLessThan(projectTime, TimeSpan.Zero);
+        _firstTimestamp ??= projectTime;
+        TimeSpan sampleTime = projectTime - _firstTimestamp.Value;
         MediaStreamSample sample = MediaStreamSample.CreateFromDirect3D11Surface(
-            frame.Surface,
+            surface,
             sampleTime);
         sample.Duration = _sampleDuration;
         sample.Processed += (_, _) => processed.TrySetResult();
@@ -159,7 +163,14 @@ public sealed class Direct3DSurfaceVideoEncoder : IAsyncDisposable
         {
             _completed = true;
             _samples.Writer.TryComplete();
-            await _transcodeTask;
+            try
+            {
+                await _transcodeTask;
+            }
+            catch (COMException exception) when (
+                (uint)exception.HResult is 0xC00D4A44 or 0xC00D36B6)
+            {
+            }
         }
 
         if (!_streamDisposed)

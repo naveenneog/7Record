@@ -6,6 +6,7 @@ using SevenRecord.Analysis;
 using SevenRecord.Audio.Windows;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
+using SevenRecord.Camera.Windows;
 using SevenRecord.Infrastructure;
 using SevenRecord.Media;
 using SevenRecord.Recording;
@@ -30,6 +31,8 @@ public sealed partial class MainPage : Page
     private WindowsScreenCaptureSession? _captureSession;
     private string? _activeProjectRoot;
     private RecoverableAudioRecordingSession? _audioRecorder;
+    private RecoverableCameraRecordingSession? _cameraRecorder;
+    private bool _cameraEnabled;
     private SurfaceScreenSegmentRecorder? _segmentRecorder;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
@@ -37,6 +40,41 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
+    }
+
+    private async void OnConfigureCameraClicked(object sender, RoutedEventArgs e)
+    {
+        ConfigureCameraButton.IsEnabled = false;
+        CameraStatusText.Text = "Testing camera frames...";
+        string probeRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "7Record",
+            "CameraProbe",
+            Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            ProjectClock clock = ProjectClock.StartNew();
+            await using RecoverableCameraRecordingSession camera =
+                await RecoverableCameraRecordingSession.CreateAsync(probeRoot, clock);
+            _cameraEnabled = true;
+            CameraStatusText.Text =
+                $"{camera.DeviceName} ({camera.Width} x {camera.Height}) is ready.";
+        }
+        catch (Exception exception)
+        {
+            _cameraEnabled = false;
+            CameraStatusText.Text = $"Camera unavailable: {exception.Message}";
+        }
+        finally
+        {
+            if (Directory.Exists(probeRoot))
+            {
+                Directory.Delete(probeRoot, recursive: true);
+            }
+
+            ConfigureCameraButton.IsEnabled = true;
+        }
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -75,6 +113,7 @@ public sealed partial class MainPage : Page
 
         SurfaceScreenSegmentRecorder? pendingSegmentRecorder = null;
         RecoverableAudioRecordingSession? pendingAudioRecorder = null;
+        RecoverableCameraRecordingSession? pendingCameraRecorder = null;
         try
         {
             string projectRoot = CreateProjectRoot();
@@ -87,6 +126,13 @@ public sealed partial class MainPage : Page
                 projectRoot,
                 projectClock);
             pendingAudioRecorder.HealthChanged += OnAudioHealthChanged;
+            if (_cameraEnabled)
+            {
+                pendingCameraRecorder =
+                    await RecoverableCameraRecordingSession.CreateAsync(
+                        projectRoot,
+                        projectClock);
+            }
             WindowsScreenCaptureSession capture = WindowsScreenCaptureSession.Start(
                 _selectedScreen.Item,
                 projectClock,
@@ -96,9 +142,11 @@ public sealed partial class MainPage : Page
             capture.CaptureFailed += OnCaptureFailed;
             _segmentRecorder = pendingSegmentRecorder;
             _audioRecorder = pendingAudioRecorder;
+            _cameraRecorder = pendingCameraRecorder;
             _activeProjectRoot = projectRoot;
             pendingSegmentRecorder = null;
             pendingAudioRecorder = null;
+            pendingCameraRecorder = null;
             _captureSession = capture;
 
             StartRecordingButton.Content = "Stop recording";
@@ -120,6 +168,10 @@ public sealed partial class MainPage : Page
             {
                 pendingAudioRecorder.HealthChanged -= OnAudioHealthChanged;
                 await pendingAudioRecorder.DisposeAsync();
+            }
+            if (pendingCameraRecorder is not null)
+            {
+                await pendingCameraRecorder.DisposeAsync();
             }
 
             System.Diagnostics.Debug.WriteLine(exception);
@@ -299,9 +351,11 @@ public sealed partial class MainPage : Page
         CaptureFrameHealthSnapshot health = capture.Health;
         SurfaceScreenSegmentRecorder? segmentRecorder = _segmentRecorder;
         RecoverableAudioRecordingSession? audioRecorder = _audioRecorder;
+        RecoverableCameraRecordingSession? cameraRecorder = _cameraRecorder;
         string? projectRoot = _activeProjectRoot;
         _segmentRecorder = null;
         _audioRecorder = null;
+        _cameraRecorder = null;
         _activeProjectRoot = null;
         if (audioRecorder is not null)
         {
@@ -314,6 +368,10 @@ public sealed partial class MainPage : Page
             {
                 await audioRecorder.StopAsync();
             }
+            if (cameraRecorder is not null)
+            {
+                await cameraRecorder.StopAsync();
+            }
 
             if (segmentRecorder is not null)
             {
@@ -321,6 +379,9 @@ public sealed partial class MainPage : Page
                 AudioRecordingResult? audio = audioRecorder is null
                     ? null
                     : await audioRecorder.PublishAsync();
+                CameraRecordingResult? camera = cameraRecorder is null
+                    ? null
+                    : await cameraRecorder.PublishAsync();
                 int repairEvents = 0;
                 if (audio is not null && projectRoot is not null)
                 {
@@ -334,7 +395,10 @@ public sealed partial class MainPage : Page
                     (audio is null
                         ? "."
                         : $"; audio saved to {audio.Microphone.RelativePath} and " +
-                          $"{audio.SystemAudio.RelativePath}; {repairEvents} timing repairs suggested.");
+                          $"{audio.SystemAudio.RelativePath}; {repairEvents} timing repairs suggested") +
+                    (camera is null
+                        ? "."
+                        : $"; camera saved to {camera.Segment.RelativePath} with {camera.Layout.Mode} layout.");
             }
             else
             {
@@ -361,6 +425,10 @@ public sealed partial class MainPage : Page
             if (audioRecorder is not null)
             {
                 await audioRecorder.DisposeAsync();
+            }
+            if (cameraRecorder is not null)
+            {
+                await cameraRecorder.DisposeAsync();
             }
         }
 

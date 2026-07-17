@@ -26,6 +26,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added Direct3D-surface Media Foundation encoding; the working set fell to 559 MB with zero drops, while software-encoder CPU remained about 1.45 cores.
 - Added synchronized WASAPI microphone and loopback capture, fitted clock drift, discontinuity detection, recoverable WAV publication, and audio timing tests.
 - Added versioned audio timing metadata and deterministic silence/rate repair events without modifying source WAVs.
+- Added optional QPC-synchronized webcam capture, GPU camera-surface conversion, recoverable camera MP4 publication, presenter-layout metadata, and explicit first-frame validation.
 
 ### Research
 
@@ -47,6 +48,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - WPF and same-publisher WinUI benchmark windows were filtered by the system picker, while automated Edge selection remained pending; the working harness uses the picker-visible Android emulator and clears stale picker windows between runs.
 - Media Foundation initially left its output stream open through publication; closing it after transcode completion fixed the atomic MP4 move.
 - Remote Audio microphone capture showed variable loss (one 60-second run missed about 1.1 seconds), so dropouts are tracked separately from clock drift.
+- Both redirected camera devices enumerate but deliver no frames in the current environment; camera configuration now times out safely and remains optional.
 
 ### Pending
 

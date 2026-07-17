@@ -149,3 +149,12 @@ Write recoverable 32-bit float WAV intermediates and journal them after the scre
 Persist versioned `audio-timing.json` metadata beside source WAVs. Convert gaps into `InsertSilence` events immediately. Convert sustained drift into `AdjustPlaybackRate` only after 30 seconds and 50 ppm, clamped to 0.995-1.005.
 
 Repair events are reversible timeline decisions. They never modify recorded audio samples.
+
+## D-018: Optional webcam and presenter layout
+
+**Status:** Accepted; hardware validation pending  
+**Date:** 2026-07-18
+
+Capture camera frames independently with `MediaFrameReader`, normalize them on the project QPC clock, convert incompatible camera textures through a GPU-only BGRA render target, and encode a separate Media Foundation MP4.
+
+Camera configuration must prove a processed frame within five seconds. Failure never blocks screen/audio recording. Presenter placement is stored in normalized `presenter-layout.json` metadata and is never baked into source media.

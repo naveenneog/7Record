@@ -143,7 +143,11 @@
                                 Style="{StaticResource BodyTextStyle}"
                                 Text="Checking camera devices..."
                                 TextWrapping="Wrap" />
-                            <Button HorizontalAlignment="Left" Content="Configure camera" />
+                            <Button
+                                x:Name="ConfigureCameraButton"
+                                HorizontalAlignment="Left"
+                                Click="OnConfigureCameraClicked"
+                                Content="Configure camera" />
                         </StackPanel>
                     </Border>
 
