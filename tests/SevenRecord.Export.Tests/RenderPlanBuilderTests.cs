@@ -136,6 +136,40 @@ public sealed class RenderPlanBuilderTests
         StringAssert.Contains(command, "atrim=start=0.000000:end=2.000000");
     }
 
+    [TestMethod]
+    public void CaptionsFlowIntoPlanAndSubtitleFilter()
+    {
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(5),
+            [Clip("screen", TimelineTrackKind.Screen, "screen.mp4")],
+            [])
+        {
+            Captions =
+            [
+                new TimelineCaption(
+                    "caption",
+                    TimelineRange.FromStartAndDuration(
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.FromSeconds(2)),
+                    "Hello")
+            ],
+        };
+
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p);
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4",
+                "C:\\temp\\captions.srt").Arguments);
+
+        Assert.HasCount(1, plan.Captions);
+        StringAssert.Contains(command, "subtitles='C\\:/temp/captions.srt'");
+    }
+
     private static TimelineAutomationEvent Automation(string id) =>
         new(
             id,

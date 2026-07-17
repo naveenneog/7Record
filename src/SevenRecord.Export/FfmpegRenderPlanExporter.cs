@@ -1,8 +1,10 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using SevenRecord.Domain.Captions;
 using SevenRecord.Domain.Timeline;
 using SevenRecord.Media;
+using SevenRecord.Transcription;
 
 namespace SevenRecord.Export;
 
@@ -18,7 +20,8 @@ public static class FfmpegRenderPlanExporter
 {
     public static FfmpegExportCommand CreateCommand(
         RenderPlan plan,
-        string outputPath)
+        string outputPath,
+        string? subtitlePath = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
@@ -84,11 +87,21 @@ public static class FfmpegRenderPlanExporter
         {
             int cameraWidth = Math.Max(240, plan.Canvas.Width / 4);
             filters.Add($"[{cameraIndex}:v]scale={cameraWidth}:-2[camera]");
-            filters.Add("[base][camera]overlay=W-w-48:H-h-48[video]");
+            filters.Add("[base][camera]overlay=W-w-48:H-h-48[composite]");
         }
         else
         {
-            filters.Add("[base]null[video]");
+            filters.Add("[base]null[composite]");
+        }
+
+        if (!string.IsNullOrWhiteSpace(subtitlePath))
+        {
+            filters.Add(
+                $"[composite]subtitles='{EscapeFilterPath(subtitlePath)}'[video]");
+        }
+        else
+        {
+            filters.Add("[composite]null[video]");
         }
 
         List<string> audioLabels = [];
@@ -162,65 +175,99 @@ public static class FfmpegRenderPlanExporter
                 "FFmpeg is not installed or is not available on PATH.");
         }
 
-        FfmpegExportCommand command;
+        string? subtitlePath = null;
         try
         {
-            command = CreateCommand(plan, outputPath);
-        }
-        catch (InvalidOperationException exception)
-        {
-            return new RenderPlanExportResult(false, outputPath, exception.Message);
-        }
-        catch (NotSupportedException exception)
-        {
-            return new RenderPlanExportResult(false, outputPath, exception.Message);
-        }
+            if (plan.Captions.Count > 0)
+            {
+                subtitlePath = Path.Combine(
+                    Path.GetTempPath(),
+                    "SevenRecord.Export",
+                    $"{Guid.NewGuid():N}.srt");
+                Directory.CreateDirectory(Path.GetDirectoryName(subtitlePath)!);
+                CaptionDocument captions = new(
+                    1,
+                    "und",
+                    plan.Captions
+                        .Select(caption => new CaptionSegment(
+                            caption.Id,
+                            caption.Range.Start,
+                            caption.Range.End,
+                            caption.Text))
+                        .ToArray());
+                await File.WriteAllTextAsync(
+                    subtitlePath,
+                    CaptionFormatter.ToSrt(captions),
+                    cancellationToken);
+            }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
-        ProcessStartInfo startInfo = new()
-        {
-            FileName = ffmpegPath,
-            CreateNoWindow = true,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
-        foreach (string argument in command.Arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
+            FfmpegExportCommand command;
+            try
+            {
+                command = CreateCommand(plan, outputPath, subtitlePath);
+            }
+            catch (InvalidOperationException exception)
+            {
+                return new RenderPlanExportResult(false, outputPath, exception.Message);
+            }
+            catch (NotSupportedException exception)
+            {
+                return new RenderPlanExportResult(false, outputPath, exception.Message);
+            }
 
-        try
-        {
-            using Process process = new() { StartInfo = startInfo };
-            if (!process.Start())
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+            ProcessStartInfo startInfo = new()
+            {
+                FileName = ffmpegPath,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            };
+            foreach (string argument in command.Arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            try
+            {
+                using Process process = new() { StartInfo = startInfo };
+                if (!process.Start())
+                {
+                    return new RenderPlanExportResult(
+                        false,
+                        outputPath,
+                        "FFmpeg export could not be started.");
+                }
+
+                Task<string> error = process.StandardError.ReadToEndAsync(cancellationToken);
+                Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                await process.WaitForExitAsync(cancellationToken);
+                _ = await output;
+                string standardError = await error;
+                return process.ExitCode == 0
+                    ? new RenderPlanExportResult(true, Path.GetFullPath(outputPath), null)
+                    : new RenderPlanExportResult(
+                        false,
+                        outputPath,
+                        string.IsNullOrWhiteSpace(standardError)
+                            ? $"FFmpeg exited with code {process.ExitCode}."
+                            : standardError.Trim());
+            }
+            catch (Win32Exception)
             {
                 return new RenderPlanExportResult(
                     false,
                     outputPath,
-                    "FFmpeg export could not be started.");
+                    "FFmpeg export could not be executed.");
             }
-
-            Task<string> error = process.StandardError.ReadToEndAsync(cancellationToken);
-            Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
-            _ = await output;
-            string standardError = await error;
-            return process.ExitCode == 0
-                ? new RenderPlanExportResult(true, Path.GetFullPath(outputPath), null)
-                : new RenderPlanExportResult(
-                    false,
-                    outputPath,
-                    string.IsNullOrWhiteSpace(standardError)
-                        ? $"FFmpeg exited with code {process.ExitCode}."
-                        : standardError.Trim());
         }
-        catch (Win32Exception)
+        finally
         {
-            return new RenderPlanExportResult(
-                false,
-                outputPath,
-                "FFmpeg export could not be executed.");
+            if (subtitlePath is not null && File.Exists(subtitlePath))
+            {
+                File.Delete(subtitlePath);
+            }
         }
     }
 
@@ -323,6 +370,12 @@ public static class FfmpegRenderPlanExporter
 
     private static string Seconds(double value) =>
         value.ToString("F6", CultureInfo.InvariantCulture);
+
+    private static string EscapeFilterPath(string path) =>
+        Path.GetFullPath(path)
+            .Replace("\\", "/", StringComparison.Ordinal)
+            .Replace(":", "\\:", StringComparison.Ordinal)
+            .Replace("'", "\\'", StringComparison.Ordinal);
 
     private static string ResolveSourcePath(string projectPath, string sourcePath)
     {

@@ -33,6 +33,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added isolated render-plan MP4 export with screen framing, optional camera overlay, mixed normalized audio, worker invocation, UI export controls, and real-file validation.
 - Added mid-track silence repair export and verified a requested 200 ms gap within 0.2 ms.
 - Added offline Whisper caption generation, cached local model download, timeline captions, JSON/SRT/VTT output, UI controls, and formatter tests.
+- Added caption-aware render plans and verified subtitle burn-in through the isolated MP4 worker.
 
 ### Research
 

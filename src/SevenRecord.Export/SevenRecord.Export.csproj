@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SevenRecord.Domain\SevenRecord.Domain.csproj" />
     <ProjectReference Include="..\SevenRecord.Media\SevenRecord.Media.csproj" />
+    <ProjectReference Include="..\SevenRecord.Transcription\SevenRecord.Transcription.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
