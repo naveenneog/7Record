@@ -8,6 +8,7 @@
     <Project Path="src/SevenRecord.Editor/SevenRecord.Editor.csproj" />
     <Project Path="src/SevenRecord.Export/SevenRecord.Export.csproj" />
     <Project Path="src/SevenRecord.Infrastructure/SevenRecord.Infrastructure.csproj" />
+    <Project Path="src/SevenRecord.Media.Worker/SevenRecord.Media.Worker.csproj" />
     <Project Path="src/SevenRecord.Media/SevenRecord.Media.csproj" />
     <Project Path="src/SevenRecord.Recording/SevenRecord.Recording.csproj" />
   </Folder>

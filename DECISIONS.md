@@ -86,3 +86,12 @@ Each independently clocked source tracks elapsed source time against elapsed pro
 Each finalized source segment is atomically moved from a project-local temporary path into `segments/`, then appended to a checksummed newline-delimited JSON journal with a durable flush.
 
 Recovery accepts an incomplete final journal line as a crash tail but rejects corruption in the middle. Referenced segments are verified by length and SHA-256. Missing, corrupt, orphaned, and temporary files are reported without automatic deletion.
+
+## D-011: H.264 encoder fallback order
+
+**Status:** Accepted  
+**Date:** 2026-07-17
+
+Encoder enumeration runs in `SevenRecord.Media.Worker`, never in the packaged WinUI process. Automatic H.264 selection uses NVIDIA NVENC, Intel Quick Sync, AMD AMF, then software `libx264`.
+
+A user preference moves its encoder to the front but does not disable fallback. The worker returns a structured report containing the discovered capabilities, selected encoder, and whether fallback occurred.

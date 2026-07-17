@@ -17,6 +17,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added the secure Windows display/window picker and require a selected capture target before recording can start.
 - Added the QPC project clock, cross-frequency normalization, and source drift estimator with one-hour synchronization tests.
 - Added atomic segment publication, checksummed journal replay, corrupt-tail recovery, and orphan/tamper inspection.
+- Added the isolated media worker, real FFmpeg encoder enumeration, and deterministic hardware-to-software fallback selection.
+- Validated the current machine: NVENC, Quick Sync, and AMF are advertised but fail initialization; software `libx264` succeeds and is selected as fallback.
 
 ### Research
 
