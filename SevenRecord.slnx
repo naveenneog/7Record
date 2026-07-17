@@ -10,6 +10,7 @@
     <Project Path="src/SevenRecord.Editor/SevenRecord.Editor.csproj" />
     <Project Path="src/SevenRecord.Export/SevenRecord.Export.csproj" />
     <Project Path="src/SevenRecord.Infrastructure/SevenRecord.Infrastructure.csproj" />
+    <Project Path="src/SevenRecord.Input.Windows/SevenRecord.Input.Windows.csproj" />
     <Project Path="src/SevenRecord.Media.Windows/SevenRecord.Media.Windows.csproj" />
     <Project Path="src/SevenRecord.Media.Worker/SevenRecord.Media.Worker.csproj" />
     <Project Path="src/SevenRecord.Media/SevenRecord.Media.csproj" />
@@ -31,6 +32,7 @@
   <Folder Name="/tools/">
     <Project Path="tools/SevenRecord.Audio.Probe/SevenRecord.Audio.Probe.csproj" />
     <Project Path="tools/SevenRecord.Camera.Probe/SevenRecord.Camera.Probe.csproj" />
+    <Project Path="tools/SevenRecord.Input.Probe/SevenRecord.Input.Probe.csproj" />
     <Project Path="tools/SevenRecord.Transcription.Probe/SevenRecord.Transcription.Probe.csproj" />
   </Folder>
 </Solution>

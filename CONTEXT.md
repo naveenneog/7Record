@@ -71,10 +71,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Offline Whisper captions now generate versioned timeline segments plus SRT/VTT; the tiny model is cached under Local AppData and no audio is uploaded.
 - Enabled timeline captions are now burned into MP4 exports through a temporary worker-generated SRT while persistent SRT/VTT remain available.
 - Caption text and timing are editable in the timeline with undo/redo; each state regenerates JSON, SRT, and VTT without touching audio.
+- Cursor movement/click metadata and reversible zoom suggestions are implemented. The current remote desktop exposes no cursor, so the optional path awaits interactive-desktop validation.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: add automatic cursor metadata/zoom events and load them into the automation track.
+- Next feature: implement export rendering for enabled cursor zoom automation.
 
 ## Environment Observed
 

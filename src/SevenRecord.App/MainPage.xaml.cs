@@ -8,11 +8,13 @@ using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Camera.Windows;
 using SevenRecord.Domain.Captions;
+using SevenRecord.Domain.Input;
 using SevenRecord.Domain.Projects;
 using SevenRecord.Domain.Timeline;
 using SevenRecord.Editor;
 using SevenRecord.Export;
 using SevenRecord.Infrastructure;
+using SevenRecord.Input.Windows;
 using SevenRecord.Media;
 using SevenRecord.Recording;
 using SevenRecord.Transcription;
@@ -41,6 +43,7 @@ public sealed partial class MainPage : Page
     private RecoverableAudioRecordingSession? _audioRecorder;
     private RecoverableCameraRecordingSession? _cameraRecorder;
     private bool _cameraEnabled;
+    private CursorMetadataRecorder? _cursorRecorder;
     private SurfaceScreenSegmentRecorder? _segmentRecorder;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
@@ -535,10 +538,19 @@ public sealed partial class MainPage : Page
         SurfaceScreenSegmentRecorder? pendingSegmentRecorder = null;
         RecoverableAudioRecordingSession? pendingAudioRecorder = null;
         RecoverableCameraRecordingSession? pendingCameraRecorder = null;
+        CursorMetadataRecorder? pendingCursorRecorder = null;
         try
         {
             string projectRoot = CreateProjectRoot();
             ProjectClock projectClock = ProjectClock.StartNew();
+            try
+            {
+                pendingCursorRecorder = CursorMetadataRecorder.Start(projectClock);
+            }
+            catch (InvalidOperationException exception)
+            {
+                System.Diagnostics.Debug.WriteLine(exception);
+            }
             pendingSegmentRecorder = await SurfaceScreenSegmentRecorder.CreateAsync(
                 projectRoot,
                 _selectedScreen.Width,
@@ -564,10 +576,12 @@ public sealed partial class MainPage : Page
             _segmentRecorder = pendingSegmentRecorder;
             _audioRecorder = pendingAudioRecorder;
             _cameraRecorder = pendingCameraRecorder;
+            _cursorRecorder = pendingCursorRecorder;
             _activeProjectRoot = projectRoot;
             pendingSegmentRecorder = null;
             pendingAudioRecorder = null;
             pendingCameraRecorder = null;
+            pendingCursorRecorder = null;
             _captureSession = capture;
 
             StartRecordingButton.Content = "Stop recording";
@@ -593,6 +607,10 @@ public sealed partial class MainPage : Page
             if (pendingCameraRecorder is not null)
             {
                 await pendingCameraRecorder.DisposeAsync();
+            }
+            if (pendingCursorRecorder is not null)
+            {
+                await pendingCursorRecorder.DisposeAsync();
             }
 
             System.Diagnostics.Debug.WriteLine(exception);
@@ -773,10 +791,12 @@ public sealed partial class MainPage : Page
         SurfaceScreenSegmentRecorder? segmentRecorder = _segmentRecorder;
         RecoverableAudioRecordingSession? audioRecorder = _audioRecorder;
         RecoverableCameraRecordingSession? cameraRecorder = _cameraRecorder;
+        CursorMetadataRecorder? cursorRecorder = _cursorRecorder;
         string? projectRoot = _activeProjectRoot;
         _segmentRecorder = null;
         _audioRecorder = null;
         _cameraRecorder = null;
+        _cursorRecorder = null;
         _activeProjectRoot = null;
         if (audioRecorder is not null)
         {
@@ -792,6 +812,21 @@ public sealed partial class MainPage : Page
             if (cameraRecorder is not null)
             {
                 await cameraRecorder.StopAsync();
+            }
+            if (cursorRecorder is not null && projectRoot is not null)
+            {
+                CursorMetadataDocument cursor =
+                    await cursorRecorder.CompleteAsync(projectRoot);
+                IReadOnlyList<CursorZoomEvent> zooms =
+                    CursorZoomPlanner.CreatePlan(cursor);
+                string zoomPath = Path.Combine(projectRoot, "cursor-zoom-plan.json");
+                string temporaryZoomPath = zoomPath + ".tmp";
+                await File.WriteAllTextAsync(
+                    temporaryZoomPath,
+                    JsonSerializer.Serialize(
+                        zooms,
+                        AudioRepairSerializerOptions));
+                File.Move(temporaryZoomPath, zoomPath, overwrite: true);
             }
 
             if (segmentRecorder is not null)
@@ -850,6 +885,10 @@ public sealed partial class MainPage : Page
             if (cameraRecorder is not null)
             {
                 await cameraRecorder.DisposeAsync();
+            }
+            if (cursorRecorder is not null)
+            {
+                await cursorRecorder.DisposeAsync();
             }
         }
 

@@ -35,6 +35,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added offline Whisper caption generation, cached local model download, timeline captions, JSON/SRT/VTT output, UI controls, and formatter tests.
 - Added caption-aware render plans and verified subtitle burn-in through the isolated MP4 worker.
 - Added caption text/timing editing, atomic persistence, and undo/redo controls with regression tests.
+- Added QPC cursor movement/click metadata, persisted cursor events, automatic click-centered zoom suggestions, timeline loading, and tests.
 
 ### Research
 
@@ -57,6 +58,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Media Foundation initially left its output stream open through publication; closing it after transcode completion fixed the atomic MP4 move.
 - Remote Audio microphone capture showed variable loss (one 60-second run missed about 1.1 seconds), so dropouts are tracked separately from clock drift.
 - Both redirected camera devices enumerate but deliver no frames in the current environment; camera configuration now times out safely and remains optional.
+- The remote desktop session exposes no cursor through `GetCursorPos`; cursor metadata now reports unavailable and remains optional.
 
 ### Pending
 

@@ -224,3 +224,12 @@ Carry enabled timeline captions into the shared render plan. The isolated export
 Caption text and timing edits operate on immutable caption-document snapshots with undo/redo stacks. Every applied, undone, or redone state rewrites caption JSON and regenerates SRT/VTT atomically.
 
 Caption edits update the timeline/render plan but never change recorded audio.
+
+## D-026: Cursor intent metadata
+
+**Status:** Accepted; interactive-desktop validation pending  
+**Date:** 2026-07-18
+
+Sample cursor position and button edges on the project QPC clock, store normalized foreground-window coordinates, and generate click-centered zoom suggestions as reversible screen automation.
+
+Cursor capture is optional. If the Windows desktop session does not expose a cursor, recording continues without metadata and no empty success-shaped file is written.
