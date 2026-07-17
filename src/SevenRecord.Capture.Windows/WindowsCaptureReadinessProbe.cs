@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Graphics.Canvas;
 using SevenRecord.Capture.Abstractions;
 using Windows.Devices.Enumeration;
 using Windows.Graphics.Capture;
@@ -23,6 +24,7 @@ public sealed class WindowsCaptureReadinessProbe(CaptureReadinessSelection selec
         cancellationToken.ThrowIfCancellationRequested();
 
         CaptureReadinessItem screen = ProbeScreenCapture();
+        CaptureReadinessItem graphicsDevice = ProbeGraphicsDevice();
         CaptureReadinessItem camera = await ProbeDevicesAsync(
             DeviceClass.VideoCapture,
             "camera",
@@ -37,7 +39,7 @@ public sealed class WindowsCaptureReadinessProbe(CaptureReadinessSelection selec
             cancellationToken);
         CaptureReadinessItem systemAudio = ProbeSystemAudio();
 
-        return [screen, camera, microphone, systemAudio];
+        return [screen, graphicsDevice, camera, microphone, systemAudio];
     }
 
     private static CaptureReadinessItem ProbeScreenCapture()
@@ -46,6 +48,29 @@ public sealed class WindowsCaptureReadinessProbe(CaptureReadinessSelection selec
         return supported
             ? new("screen", "Screen", CaptureSourceState.Ready, true, "Windows screen capture is available.")
             : new("screen", "Screen", CaptureSourceState.Error, true, "Windows screen capture is not supported on this device.");
+    }
+
+    private static CaptureReadinessItem ProbeGraphicsDevice()
+    {
+        try
+        {
+            using CanvasDevice device = new();
+            return new(
+                "graphics-device",
+                "Graphics device",
+                CaptureSourceState.Ready,
+                true,
+                "Direct3D 11 capture surfaces are available.");
+        }
+        catch (COMException exception)
+        {
+            return new(
+                "graphics-device",
+                "Graphics device",
+                CaptureSourceState.Error,
+                true,
+                $"Direct3D device creation failed (0x{exception.HResult:X8}).");
+        }
     }
 
     private static async Task<CaptureReadinessItem> ProbeDevicesAsync(

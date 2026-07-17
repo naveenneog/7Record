@@ -95,3 +95,12 @@ Recovery accepts an incomplete final journal line as a crash tail but rejects co
 Encoder enumeration runs in `SevenRecord.Media.Worker`, never in the packaged WinUI process. Automatic H.264 selection uses NVIDIA NVENC, Intel Quick Sync, AMD AMF, then software `libx264`.
 
 A user preference moves its encoder to the front but does not disable fallback. The worker returns a structured report containing the discovered capabilities, selected encoder, and whether fallback occurred.
+
+## D-012: Screen frame delivery
+
+**Status:** Accepted  
+**Date:** 2026-07-17
+
+Use a free-threaded `Direct3D11CaptureFramePool` with three buffers. Frame callbacks normalize `SystemRelativeTime` through the project QPC clock and enqueue at most three disposable frame leases for a single asynchronous processor.
+
+When processing falls behind, new frames are dropped and counted rather than blocking capture. Size changes drop the transition frame and recreate the pool only after queued leases drain. Frame surfaces remain valid only for the lifetime of their lease.
