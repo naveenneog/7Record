@@ -120,7 +120,15 @@ public static class ProjectTimelineLoader
                         zoom.Start,
                         zoom.Duration),
                     $"Zoom {zoom.Scale:F1}× at {zoom.CenterX:P0}, {zoom.CenterY:P0}",
-                    true)));
+                    true)
+                {
+                    NumericData = new Dictionary<string, double>
+                    {
+                        ["centerX"] = zoom.CenterX,
+                        ["centerY"] = zoom.CenterY,
+                        ["scale"] = zoom.Scale,
+                    },
+                }));
         }
 
         return new TimelineDocument(

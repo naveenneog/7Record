@@ -18,3 +18,9 @@ The active remote desktop session returns `false` from `GetCursorPos`, including
 > Windows cursor position is unavailable in the current desktop session.
 
 Cursor metadata is optional. This environment limitation does not block screen, audio, captions, or export. The live cursor path requires validation on an interactive Windows desktop with an accessible pointer.
+
+## Export rendering
+
+Cursor zoom suggestions carry structured `centerX`, `centerY`, and `scale` data into the shared render plan. FFmpeg `zoompan` applies a smooth sine-ramped zoom during the event while camera overlays and captions remain in the final output coordinate space.
+
+A synthetic 1.8x zoom centered at 30%, 60% from 1.0-2.2 seconds rendered successfully into a 1920 x 1080 / 30 fps MP4.

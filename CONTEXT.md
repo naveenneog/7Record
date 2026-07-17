@@ -72,10 +72,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Enabled timeline captions are now burned into MP4 exports through a temporary worker-generated SRT while persistent SRT/VTT remain available.
 - Caption text and timing are editable in the timeline with undo/redo; each state regenerates JSON, SRT, and VTT without touching audio.
 - Cursor movement/click metadata and reversible zoom suggestions are implemented. The current remote desktop exposes no cursor, so the optional path awaits interactive-desktop validation.
+- Enabled cursor zoom suggestions now render through smooth time-based zoompan expressions before camera/caption composition.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: implement export rendering for enabled cursor zoom automation.
+- Next feature: add loading/waiting detection and reversible speed-up events.
 
 ## Environment Observed
 

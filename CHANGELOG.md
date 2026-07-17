@@ -36,6 +36,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added caption-aware render plans and verified subtitle burn-in through the isolated MP4 worker.
 - Added caption text/timing editing, atomic persistence, and undo/redo controls with regression tests.
 - Added QPC cursor movement/click metadata, persisted cursor events, automatic click-centered zoom suggestions, timeline loading, and tests.
+- Added structured cursor zoom render-plan metadata and verified time/center-aware zoompan MP4 export.
 
 ### Research
 

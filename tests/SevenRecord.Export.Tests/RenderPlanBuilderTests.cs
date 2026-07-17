@@ -82,8 +82,8 @@ public sealed class RenderPlanBuilderTests
             [
                 new TimelineAutomationEvent(
                     "gap",
-                    "CursorZoom",
-                    TimelineTrackKind.Microphone,
+                    "LoadingSpeed",
+                    TimelineTrackKind.Screen,
                     TimelineRange.FromStartAndDuration(
                         TimeSpan.FromSeconds(1),
                         TimeSpan.FromMilliseconds(100)),
@@ -168,6 +168,47 @@ public sealed class RenderPlanBuilderTests
 
         Assert.HasCount(1, plan.Captions);
         StringAssert.Contains(command, "subtitles='C\\:/temp/captions.srt'");
+    }
+
+    [TestMethod]
+    public void CursorZoomUsesStructuredZoompanExpressions()
+    {
+        TimelineAutomationEvent zoom = new(
+            "zoom",
+            "CursorZoom",
+            TimelineTrackKind.Screen,
+            TimelineRange.FromStartAndDuration(
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromSeconds(1.2)),
+            "zoom",
+            true)
+        {
+            NumericData = new Dictionary<string, double>
+            {
+                ["centerX"] = 0.25,
+                ["centerY"] = 0.75,
+                ["scale"] = 1.8,
+            },
+        };
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(5),
+            [Clip("screen", TimelineTrackKind.Screen, "screen.mp4")],
+            [zoom]);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p);
+
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4").Arguments);
+
+        StringAssert.Contains(command, "zoompan=");
+        StringAssert.Contains(command, "0.250000*iw");
+        StringAssert.Contains(command, "0.750000*ih");
+        StringAssert.Contains(command, "(1.8-1)");
     }
 
     private static TimelineAutomationEvent Automation(string id) =>
