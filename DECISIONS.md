@@ -190,3 +190,12 @@ Preview and export must consume this same timeline document so automated edits c
 Preview and export use one deterministic `RenderPlan`: canvas preset, immutable source clips, and only enabled automation events. Disabling an automatic edit removes it from the plan without changing the timeline source data.
 
 Initial framing presets are landscape 1920 x 1080, portrait 1080 x 1920, and square 1080 x 1080. Plans can be persisted as `render-plan.json`.
+
+## D-022: First MP4 exporter
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Execute `render-plan.json` in the isolated media worker. The first exporter supports screen scale/pad, optional camera overlay, microphone/system mix, loudness normalization, bounded whole-track playback rate, H.264/AAC, and fast-start MP4.
+
+If an enabled automation event is not implemented, export fails explicitly. It must never silently omit an edit.

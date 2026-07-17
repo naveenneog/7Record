@@ -1,6 +1,13 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
+using SevenRecord.Export;
 using SevenRecord.Media;
+
+JsonSerializerOptions serializerOptions = new(JsonSerializerDefaults.Web)
+{
+    WriteIndented = true,
+};
+serializerOptions.Converters.Add(new JsonStringEnumConverter());
 
 if (args.Length == 0)
 {
@@ -13,11 +20,6 @@ if (string.Equals(args[0], "probe-encoders", StringComparison.OrdinalIgnoreCase)
     string? executablePath = args.Length > 1 ? args[1] : null;
     FfmpegEncoderProbeResult result = await FfmpegEncoderProbe.ProbeAsync(executablePath);
 
-    JsonSerializerOptions serializerOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true,
-    };
-    serializerOptions.Converters.Add(new JsonStringEnumConverter());
     Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
 
     return result.Succeeded ? 0 : 1;
@@ -55,6 +57,24 @@ if (string.Equals(args[0], "encode-bgra", StringComparison.OrdinalIgnoreCase) &&
     return 0;
 }
 
+if (string.Equals(args[0], "export-plan", StringComparison.OrdinalIgnoreCase) &&
+    args.Length == 3)
+{
+    string json = await File.ReadAllTextAsync(args[1]);
+    RenderPlan? plan = JsonSerializer.Deserialize<RenderPlan>(json, serializerOptions);
+    if (plan is null)
+    {
+        Console.Error.WriteLine("Render plan is empty or invalid.");
+        return 1;
+    }
+
+    RenderPlanExportResult result = await FfmpegRenderPlanExporter.ExportAsync(
+        plan,
+        args[2]);
+    Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
+    return result.Succeeded ? 0 : 1;
+}
+
 PrintUsage();
 return 2;
 
@@ -64,4 +84,6 @@ static void PrintUsage()
     Console.Error.WriteLine("  SevenRecord.Media.Worker probe-encoders [ffmpeg-path]");
     Console.Error.WriteLine(
         "  SevenRecord.Media.Worker encode-bgra <width> <height> <fps> <encoder> <output>");
+    Console.Error.WriteLine(
+        "  SevenRecord.Media.Worker export-plan <render-plan.json> <output.mp4>");
 }

@@ -35,6 +35,71 @@ public sealed class RenderPlanBuilderTests
         Assert.AreEqual(1920, plan.Canvas.Height);
     }
 
+    [TestMethod]
+    public void ExportCommandIncludesOverlayAndMixedAudio()
+    {
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(5),
+            [
+                Clip("screen", TimelineTrackKind.Screen, "screen.mp4"),
+                Clip("camera", TimelineTrackKind.Camera, "camera.mp4"),
+                Clip("mic", TimelineTrackKind.Microphone, "mic.wav"),
+                Clip("system", TimelineTrackKind.SystemAudio, "system.wav")
+            ],
+            [
+                new TimelineAutomationEvent(
+                    "layout",
+                    "PresenterLayout",
+                    TimelineTrackKind.Camera,
+                    TimelineRange.FromStartAndDuration(
+                        TimeSpan.Zero,
+                        TimeSpan.FromSeconds(5)),
+                    "RoundedOverlay",
+                    true)
+            ]);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p);
+
+        FfmpegExportCommand command = FfmpegRenderPlanExporter.CreateCommand(
+            plan,
+            "C:\\output\\video.mp4");
+        string joined = string.Join(" ", command.Arguments);
+
+        StringAssert.Contains(joined, "overlay=");
+        StringAssert.Contains(joined, "amix=inputs=2");
+        StringAssert.Contains(joined, "1920:1080");
+    }
+
+    [TestMethod]
+    public void UnsupportedEnabledAutomationFailsExplicitly()
+    {
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(5),
+            [Clip("screen", TimelineTrackKind.Screen, "screen.mp4")],
+            [
+                new TimelineAutomationEvent(
+                    "gap",
+                    "InsertSilence",
+                    TimelineTrackKind.Microphone,
+                    TimelineRange.FromStartAndDuration(
+                        TimeSpan.FromSeconds(1),
+                        TimeSpan.FromMilliseconds(100)),
+                    "gap",
+                    true)
+            ]);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p);
+
+        Assert.ThrowsExactly<NotSupportedException>(
+            () => FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4"));
+    }
+
     private static TimelineAutomationEvent Automation(string id) =>
         new(
             id,
@@ -45,4 +110,16 @@ public sealed class RenderPlanBuilderTests
                 TimeSpan.FromMilliseconds(100)),
             id,
             true);
+
+    private static TimelineClip Clip(
+        string id,
+        TimelineTrackKind track,
+        string path) =>
+        new(
+            id,
+            track,
+            path,
+            TimelineRange.FromStartAndDuration(
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(5)));
 }

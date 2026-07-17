@@ -66,10 +66,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - The recorder shell now lists recent projects and derives Ready, Recoverable, Needs Attention, or Corrupt state from journal replay and segment verification.
 - Selecting a recent project now opens the first editor timeline with independent screen/camera/microphone/system-audio clips and reversible repair/layout automation.
 - The timeline now builds a shared preview/export render plan with three aspect-ratio presets and per-automation enable/disable controls.
+- The isolated media worker now exports persisted render plans to H.264/AAC fast-start MP4; a real 1920 x 1080 / 30 fps export was verified.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: execute `render-plan.json` through the isolated media worker to produce the first creator-ready MP4 export.
+- Next feature: implement mid-track silence repair in export, then add captions/transcript generation.
 
 ## Environment Observed
 
