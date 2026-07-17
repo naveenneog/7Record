@@ -64,6 +64,7 @@
     <ProjectReference Include="..\SevenRecord.Infrastructure\SevenRecord.Infrastructure.csproj" />
     <ProjectReference Include="..\SevenRecord.Media.Worker\SevenRecord.Media.Worker.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\SevenRecord.Media.Windows\SevenRecord.Media.Windows.csproj" />
+    <ProjectReference Include="..\SevenRecord.Audio.Windows\SevenRecord.Audio.Windows.csproj" />
   </ItemGroup>
 
   <Target Name="CopyMediaWorkerToAppX" AfterTargets="Build">

@@ -60,10 +60,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - The first recoverable screen segment is complete: the app copied BGRA frames, paced a static source at 30 fps, encoded H.264 in the isolated worker, and atomically published a SHA-256-journaled Matroska segment.
 - The automated performance gate rejected CPU readback for production: 1.42 CPU cores and 1.55 GB working set at 1.60 MP / 13.71 source fps, despite zero drops and 180 ms duration error.
 - Direct3D-surface Media Foundation encoding now publishes recoverable MP4 segments with no pixel readback. It reduced working set to 559 MB with zero drops; CPU stayed near 1.45 cores because this machine has no working hardware encoder runtime.
+- Microphone and WASAPI loopback now share the project QPC clock, publish independent float WAVs, report fitted drift, and record callback discontinuities. Remote Audio loopback is stable; microphone delivery can drop samples and is explicitly surfaced.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: validate the Direct3D surface path against a true 60 fps source on hardware with a working encoder, then add microphone/system-audio synchronization.
+- Next feature: insert silence/resample audio gaps for preview while preserving source WAVs, then add webcam capture on the same clock.
 
 ## Environment Observed
 

@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SevenRecord.Analysis/SevenRecord.Analysis.csproj" />
     <Project Path="src/SevenRecord.App/SevenRecord.App.csproj" />
+    <Project Path="src/SevenRecord.Audio.Windows/SevenRecord.Audio.Windows.csproj" />
     <Project Path="src/SevenRecord.Capture.Abstractions/SevenRecord.Capture.Abstractions.csproj" />
     <Project Path="src/SevenRecord.Capture.Windows/SevenRecord.Capture.Windows.csproj" />
     <Project Path="src/SevenRecord.Domain/SevenRecord.Domain.csproj" />
@@ -14,9 +15,13 @@
     <Project Path="src/SevenRecord.Recording/SevenRecord.Recording.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SevenRecord.Audio.Tests/SevenRecord.Audio.Tests.csproj" />
     <Project Path="tests/SevenRecord.Capture.Tests/SevenRecord.Capture.Tests.csproj" />
     <Project Path="tests/SevenRecord.Domain.Tests/SevenRecord.Domain.Tests.csproj" />
     <Project Path="tests/SevenRecord.Media.Tests/SevenRecord.Media.Tests.csproj" />
     <Project Path="tests/SevenRecord.Recording.Tests/SevenRecord.Recording.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/SevenRecord.Audio.Probe/SevenRecord.Audio.Probe.csproj" />
   </Folder>
 </Solution>
