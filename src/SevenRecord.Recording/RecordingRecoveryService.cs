@@ -76,7 +76,7 @@ public sealed class RecordingRecoveryService
             .ToArray();
 
         string[] temporaryFiles = Directory.Exists(_projectRoot)
-            ? Directory.GetFiles(_projectRoot, "*.partial", SearchOption.AllDirectories)
+            ? Directory.GetFiles(_projectRoot, "*.partial*", SearchOption.AllDirectories)
                 .Select(path => Path.GetRelativePath(_projectRoot, path))
                 .Order(StringComparer.OrdinalIgnoreCase)
                 .ToArray()

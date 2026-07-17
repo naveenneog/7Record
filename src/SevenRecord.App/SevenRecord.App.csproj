@@ -63,16 +63,14 @@
     <ProjectReference Include="..\SevenRecord.Export\SevenRecord.Export.csproj" />
     <ProjectReference Include="..\SevenRecord.Infrastructure\SevenRecord.Infrastructure.csproj" />
     <ProjectReference Include="..\SevenRecord.Media.Worker\SevenRecord.Media.Worker.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\SevenRecord.Media.Windows\SevenRecord.Media.Windows.csproj" />
   </ItemGroup>
 
   <Target Name="CopyMediaWorkerToAppX" AfterTargets="Build">
     <ItemGroup>
       <_MediaWorkerFiles Include="$(MSBuildProjectDirectory)\..\SevenRecord.Media.Worker\bin\$(Configuration)\net10.0\**\*" />
     </ItemGroup>
-    <Copy
-      SourceFiles="@(_MediaWorkerFiles)"
-      DestinationFiles="@(_MediaWorkerFiles->'$(OutDir)AppX\MediaWorker\%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_MediaWorkerFiles)" DestinationFiles="@(_MediaWorkerFiles->'$(OutDir)AppX\MediaWorker\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 
   <!--
