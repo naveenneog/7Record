@@ -12,6 +12,9 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added the initial architecture decision log in `DECISIONS.md`.
 - Scaffolded the .NET 10 / WinUI 3 solution with the accepted module boundaries.
 - Added the first recorder workspace shell, domain timeline primitives, segment policy, and automated tests.
+- Added live readiness checks for Windows screen capture, camera, microphone, system audio, storage, and FFmpeg encoders.
+- Wired readiness state into the recorder workspace with explicit blocking reasons and regression tests.
+- Added the secure Windows display/window picker and require a selected capture target before recording can start.
 
 ### Research
 
@@ -28,6 +31,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Environment probe confirmed Node.js, npm, and .NET; the probe stopped when Rust was not found, so FFmpeg still needs a separate check.
 - Both restarted research agents were cancelled after about 22 minutes without returning findings.
 - Parallel broad web searches mostly timed out, so research switched to bounded official-page retrieval.
+- Running `ffmpeg -encoders` directly from the packaged WinUI process crashed the Windows App Runtime with `0xc000027b` / `0x8000ffff`; readiness now performs safe executable discovery and leaves encoder enumeration to the isolated media worker required by D-008.
+- Running WinRT device discovery on the WinUI STA thread produced the same native crash; the Windows readiness probe now executes on an MTA worker and marshals only results back to the UI.
 
 ### Pending
 

@@ -12,7 +12,9 @@
     <Project Path="src/SevenRecord.Recording/SevenRecord.Recording.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SevenRecord.Capture.Tests/SevenRecord.Capture.Tests.csproj" />
     <Project Path="tests/SevenRecord.Domain.Tests/SevenRecord.Domain.Tests.csproj" />
+    <Project Path="tests/SevenRecord.Media.Tests/SevenRecord.Media.Tests.csproj" />
     <Project Path="tests/SevenRecord.Recording.Tests/SevenRecord.Recording.Tests.csproj" />
   </Folder>
 </Solution>

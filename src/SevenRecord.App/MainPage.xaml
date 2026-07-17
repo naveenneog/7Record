@@ -7,6 +7,7 @@
     xmlns:local="using:SevenRecord.App"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Background="{StaticResource StudioBackgroundBrush}"
+    Loaded="OnLoaded"
     mc:Ignorable="d">
     <Grid>
         <Grid.RowDefinitions>
@@ -42,10 +43,12 @@
                         Text="7Record" />
                 </StackPanel>
                 <Button
+                    x:Name="StartRecordingButton"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     AutomationProperties.Name="Start a new recording"
                     Content="New recording"
+                    IsEnabled="False"
                     Style="{StaticResource AccentButtonStyle}" />
             </Grid>
         </Border>
@@ -110,8 +113,17 @@
                         CornerRadius="10">
                         <StackPanel Spacing="10">
                             <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Screen" />
-                            <TextBlock Style="{StaticResource BodyTextStyle}" Text="No display or window selected." TextWrapping="Wrap" />
-                            <Button HorizontalAlignment="Left" Content="Choose source" />
+                            <TextBlock
+                                x:Name="ScreenStatusText"
+                                Style="{StaticResource BodyTextStyle}"
+                                Text="Checking Windows screen capture..."
+                                TextWrapping="Wrap" />
+                            <Button
+                                x:Name="ChooseSourceButton"
+                                HorizontalAlignment="Left"
+                                AutomationProperties.Name="Choose a screen or window"
+                                Click="OnChooseSourceClicked"
+                                Content="Choose source" />
                         </StackPanel>
                     </Border>
 
@@ -124,7 +136,11 @@
                         CornerRadius="10">
                         <StackPanel Spacing="10">
                             <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Camera" />
-                            <TextBlock Style="{StaticResource BodyTextStyle}" Text="Camera is optional for screen-only recordings." TextWrapping="Wrap" />
+                            <TextBlock
+                                x:Name="CameraStatusText"
+                                Style="{StaticResource BodyTextStyle}"
+                                Text="Checking camera devices..."
+                                TextWrapping="Wrap" />
                             <Button HorizontalAlignment="Left" Content="Configure camera" />
                         </StackPanel>
                     </Border>
@@ -138,7 +154,11 @@
                         CornerRadius="10">
                         <StackPanel Spacing="10">
                             <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Audio" />
-                            <TextBlock Style="{StaticResource BodyTextStyle}" Text="Microphone and system audio are checked independently." TextWrapping="Wrap" />
+                            <TextBlock
+                                x:Name="AudioStatusText"
+                                Style="{StaticResource BodyTextStyle}"
+                                Text="Checking microphone and system audio..."
+                                TextWrapping="Wrap" />
                             <Button HorizontalAlignment="Left" Content="Configure audio" />
                         </StackPanel>
                     </Border>
@@ -180,18 +200,38 @@
                         CornerRadius="12">
                         <StackPanel Spacing="18">
                             <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Recording health" />
+                            <Button
+                                x:Name="RefreshReadinessButton"
+                                HorizontalAlignment="Left"
+                                AutomationProperties.Name="Refresh recording health"
+                                Click="OnRefreshReadinessClicked"
+                                Content="Refresh checks" />
                             <StackPanel Spacing="6">
                                 <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Storage" />
-                                <TextBlock Style="{StaticResource BodyTextStyle}" Text="Checking available space..." />
+                                <TextBlock
+                                    x:Name="StorageStatusText"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    Text="Checking available space..." />
                             </StackPanel>
                             <StackPanel Spacing="6">
                                 <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Encoder" />
-                                <TextBlock Style="{StaticResource BodyTextStyle}" Text="Capability probe not started." />
+                                <TextBlock
+                                    x:Name="EncoderStatusText"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    Text="Checking FFmpeg encoders..."
+                                    TextWrapping="Wrap" />
                             </StackPanel>
                             <StackPanel Spacing="6">
                                 <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Recovery" />
                                 <TextBlock Style="{StaticResource BodyTextStyle}" Text="Segments will be finalized during recording." TextWrapping="Wrap" />
                             </StackPanel>
+                            <InfoBar
+                                x:Name="ReadinessInfoBar"
+                                IsClosable="False"
+                                IsOpen="True"
+                                Message="Recording checks are running."
+                                Severity="Informational"
+                                Title="Preparing recorder" />
                         </StackPanel>
                     </Border>
                 </Grid>
