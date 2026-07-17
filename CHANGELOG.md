@@ -16,6 +16,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Wired readiness state into the recorder workspace with explicit blocking reasons and regression tests.
 - Added the secure Windows display/window picker and require a selected capture target before recording can start.
 - Added the QPC project clock, cross-frequency normalization, and source drift estimator with one-hour synchronization tests.
+- Added atomic segment publication, checksummed journal replay, corrupt-tail recovery, and orphan/tamper inspection.
 
 ### Research
 
