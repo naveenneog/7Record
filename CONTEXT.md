@@ -57,10 +57,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Segmented recovery now atomically publishes project-local media, durably appends checksummed journal entries, tolerates only a corrupt crash tail, and reports missing, tampered, orphaned, and partial files without deleting evidence.
 - `SevenRecord.Media.Worker` performs real synthetic encoder initialization. On the current machine NVENC, Quick Sync, and AMF are listed but fail runtime initialization; `libx264` validates successfully and is selected as an explicit fallback.
 - The selected `GraphicsCaptureItem` now starts a free-threaded Direct3D 11 frame pool. An automated picker run captured a real Explorer frame, normalized its QPC time, stopped cleanly, and reported zero dropped frames.
+- The first recoverable screen segment is complete: the app copied BGRA frames, paced a static source at 30 fps, encoded H.264 in the isolated worker, and atomically published a SHA-256-journaled Matroska segment.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: copy Direct3D surfaces into the isolated encoding path and publish the first recoverable screen segment.
+- Next feature: benchmark the CPU-readback path at 1080p60 and replace it with GPU sharing/native Media Foundation encoding if it misses the accepted CPU or drop thresholds.
 
 ## Environment Observed
 

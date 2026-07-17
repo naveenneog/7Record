@@ -5,6 +5,7 @@ using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Infrastructure;
 using SevenRecord.Media;
+using SevenRecord.Recording;
 
 namespace SevenRecord.App;
 
@@ -21,6 +22,7 @@ public sealed partial class MainPage : Page
         new EncoderReadinessProbe(),
     ]);
     private WindowsScreenCaptureSession? _captureSession;
+    private ScreenSegmentRecorder? _segmentRecorder;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
 
@@ -58,24 +60,69 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        ProjectClock projectClock = ProjectClock.StartNew();
-        WindowsScreenCaptureSession capture = WindowsScreenCaptureSession.Start(
-            _selectedScreen.Item,
-            projectClock,
-            static (frame, cancellationToken) => ValueTask.CompletedTask);
-        capture.HealthChanged += OnCaptureHealthChanged;
-        capture.CaptureClosed += OnCaptureClosed;
-        capture.CaptureFailed += OnCaptureFailed;
-        _captureSession = capture;
-
-        StartRecordingButton.Content = "Stop recording";
-        StartRecordingButton.IsEnabled = true;
-        ChooseSourceButton.IsEnabled = false;
-        RefreshReadinessButton.IsEnabled = false;
-        ReadinessInfoBar.Title = "Recording";
-        ReadinessInfoBar.Message = "Capturing timestamped Direct3D frames.";
+        StartRecordingButton.IsEnabled = false;
+        ReadinessInfoBar.Title = "Preparing encoder";
+        ReadinessInfoBar.Message = "Validating the isolated media worker.";
         ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
-        FrameStatusText.Text = "Waiting for the first frame...";
+
+        ScreenSegmentRecorder? pendingSegmentRecorder = null;
+        try
+        {
+            string workerPath = Path.Combine(
+                AppContext.BaseDirectory,
+                "MediaWorker",
+                "SevenRecord.Media.Worker.exe");
+            FfmpegEncoderProbeResult probe =
+                await MediaWorkerEncoderProbeClient.ProbeAsync(workerPath);
+            if (!probe.Succeeded || probe.Selection is null)
+            {
+                throw new InvalidOperationException(
+                    probe.Error ?? "No working H.264 encoder is available.");
+            }
+
+            string projectRoot = CreateProjectRoot();
+            pendingSegmentRecorder = ScreenSegmentRecorder.Start(
+                projectRoot,
+                workerPath,
+                probe.Selection,
+                _selectedScreen.Width,
+                _selectedScreen.Height);
+            ProjectClock projectClock = ProjectClock.StartNew();
+            WindowsScreenCaptureSession capture = WindowsScreenCaptureSession.Start(
+                _selectedScreen.Item,
+                projectClock,
+                pendingSegmentRecorder.ProcessFrameAsync);
+            capture.HealthChanged += OnCaptureHealthChanged;
+            capture.CaptureClosed += OnCaptureClosed;
+            capture.CaptureFailed += OnCaptureFailed;
+            _segmentRecorder = pendingSegmentRecorder;
+            pendingSegmentRecorder = null;
+            _captureSession = capture;
+
+            StartRecordingButton.Content = "Stop recording";
+            StartRecordingButton.IsEnabled = true;
+            ChooseSourceButton.IsEnabled = false;
+            RefreshReadinessButton.IsEnabled = false;
+            ReadinessInfoBar.Title = "Recording";
+            ReadinessInfoBar.Message =
+                $"Capturing with {probe.Selection.FfmpegName}" +
+                (probe.Selection.IsFallback ? " fallback." : ".");
+            ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
+            FrameStatusText.Text = "Waiting for the first frame...";
+        }
+        catch (Exception exception)
+        {
+            if (pendingSegmentRecorder is not null)
+            {
+                await pendingSegmentRecorder.DisposeAsync();
+            }
+
+            System.Diagnostics.Debug.WriteLine(exception);
+            StartRecordingButton.IsEnabled = true;
+            ReadinessInfoBar.Title = "Recording could not start";
+            ReadinessInfoBar.Message = exception.Message;
+            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+        }
     }
 
     private async void OnChooseSourceClicked(object sender, RoutedEventArgs e)
@@ -242,12 +289,51 @@ public sealed partial class MainPage : Page
         await capture.DisposeAsync();
 
         CaptureFrameHealthSnapshot health = capture.Health;
-        FrameStatusText.Text =
-            $"Stopped after {health.FramesReceived:N0} frames; " +
-            $"{health.FramesDropped:N0} dropped.";
+        ScreenSegmentRecorder? segmentRecorder = _segmentRecorder;
+        _segmentRecorder = null;
+        if (segmentRecorder is not null)
+        {
+            try
+            {
+                RecordingSegmentEntry segment = await segmentRecorder.CompleteAsync();
+                FrameStatusText.Text =
+                    $"Saved {health.FramesReceived:N0} captured frames to {segment.RelativePath}; " +
+                    $"{health.FramesDropped:N0} dropped.";
+            }
+            catch (Exception exception)
+            {
+                System.Diagnostics.Debug.WriteLine(exception);
+                FrameStatusText.Text = $"Segment finalization failed: {exception.Message}";
+                ReadinessInfoBar.Title = "Recording could not be finalized";
+                ReadinessInfoBar.Message = exception.Message;
+                ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+            }
+            finally
+            {
+                await segmentRecorder.DisposeAsync();
+            }
+        }
+        else
+        {
+            FrameStatusText.Text =
+                $"Stopped after {health.FramesReceived:N0} frames; " +
+                $"{health.FramesDropped:N0} dropped.";
+        }
+
         StartRecordingButton.Content = "New recording";
         ChooseSourceButton.IsEnabled = true;
         RefreshReadinessButton.IsEnabled = true;
-        UpdateReadinessSummary();
+        if (ReadinessInfoBar.Severity is not InfoBarSeverity.Error)
+        {
+            UpdateReadinessSummary();
+        }
+    }
+
+    private static string CreateProjectRoot()
+    {
+        string videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+        string projectName =
+            $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+        return Path.Combine(videos, "7Record", "Projects", projectName);
     }
 }

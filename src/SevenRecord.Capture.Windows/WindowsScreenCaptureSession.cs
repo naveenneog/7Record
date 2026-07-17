@@ -10,12 +10,17 @@ namespace SevenRecord.Capture.Windows;
 
 public sealed class ScreenCaptureFrameLease : IDisposable
 {
+    private readonly CanvasDevice _device;
     private Direct3D11CaptureFrame? _frame;
 
-    internal ScreenCaptureFrameLease(Direct3D11CaptureFrame frame, TimeSpan projectTime)
+    internal ScreenCaptureFrameLease(
+        Direct3D11CaptureFrame frame,
+        TimeSpan projectTime,
+        CanvasDevice device)
     {
         _frame = frame;
         ProjectTime = projectTime;
+        _device = device;
     }
 
     public TimeSpan ProjectTime { get; }
@@ -23,6 +28,12 @@ public sealed class ScreenCaptureFrameLease : IDisposable
     public SizeInt32 ContentSize => Frame.ContentSize;
 
     public IDirect3DSurface Surface => Frame.Surface;
+
+    public byte[] CopyBgra8()
+    {
+        using CanvasBitmap bitmap = CanvasBitmap.CreateFromDirect3D11Surface(_device, Surface);
+        return bitmap.GetPixelBytes();
+    }
 
     private Direct3D11CaptureFrame Frame =>
         _frame ?? throw new ObjectDisposedException(nameof(ScreenCaptureFrameLease));
@@ -169,7 +180,7 @@ public sealed class WindowsScreenCaptureSession : IAsyncDisposable
             return;
         }
 
-        ScreenCaptureFrameLease lease = new(frame, projectTime);
+        ScreenCaptureFrameLease lease = new(frame, projectTime, _device);
 
         int queuedFrames = Interlocked.Increment(ref _queuedFrames);
         if (queuedFrames > MaximumQueuedFrames)
