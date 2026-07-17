@@ -16,6 +16,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Started a market research agent covering modern creator screen recorders and smart editors.
 - Started a Windows capture architecture research agent.
 - Added a sourced competitor matrix and MVP recommendation in `docs/research/market-landscape.md`.
+- Added the Windows capture/media architecture recommendation in `docs/research/windows-architecture.md`.
 
 ### Attempted
 
@@ -26,4 +27,4 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 
 ### Pending
 
-- Technical research synthesis, stack selection, app scaffold, capture implementation, smart editor, tests, packaging, and release validation.
+- Stack decision, app scaffold, capture implementation, smart editor, tests, packaging, and release validation.
