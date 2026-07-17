@@ -3,6 +3,7 @@
     <Project Path="src/SevenRecord.Analysis/SevenRecord.Analysis.csproj" />
     <Project Path="src/SevenRecord.App/SevenRecord.App.csproj" />
     <Project Path="src/SevenRecord.Audio.Windows/SevenRecord.Audio.Windows.csproj" />
+    <Project Path="src/SevenRecord.Camera.Windows/SevenRecord.Camera.Windows.csproj" />
     <Project Path="src/SevenRecord.Capture.Abstractions/SevenRecord.Capture.Abstractions.csproj" />
     <Project Path="src/SevenRecord.Capture.Windows/SevenRecord.Capture.Windows.csproj" />
     <Project Path="src/SevenRecord.Domain/SevenRecord.Domain.csproj" />
@@ -24,5 +25,6 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/SevenRecord.Audio.Probe/SevenRecord.Audio.Probe.csproj" />
+    <Project Path="tools/SevenRecord.Camera.Probe/SevenRecord.Camera.Probe.csproj" />
   </Folder>
 </Solution>

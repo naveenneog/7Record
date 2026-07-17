@@ -62,10 +62,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Direct3D-surface Media Foundation encoding now publishes recoverable MP4 segments with no pixel readback. It reduced working set to 559 MB with zero drops; CPU stayed near 1.45 cores because this machine has no working hardware encoder runtime.
 - Microphone and WASAPI loopback now share the project QPC clock, publish independent float WAVs, report fitted drift, and record callback discontinuities. Remote Audio loopback is stable; microphone delivery can drop samples and is explicitly surfaced.
 - Projects now persist `audio-timing.json`; the analysis layer generates reversible silence insertion and bounded playback-rate events from gaps and sustained drift.
+- Webcam capture is implemented as an independent QPC-timestamped MediaFrameReader/MP4 source with normalized presenter-layout metadata. Current redirected cameras provide no frames, so the UI keeps camera disabled without blocking screen/audio.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: add webcam capture and presenter-layout metadata on the same project clock.
+- Next feature: build the project library/recovery UI, then expose recorded screen/audio/camera sources in the editor timeline.
 
 ## Environment Observed
 

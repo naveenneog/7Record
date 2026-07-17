@@ -68,7 +68,10 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
     public ValueTask ProcessFrameAsync(
         ScreenCaptureFrameLease frame,
         CancellationToken cancellationToken) =>
-        _encoder.ProcessFrameAsync(frame, cancellationToken);
+        _encoder.ProcessSurfaceAsync(
+            frame.Surface,
+            frame.ProjectTime,
+            cancellationToken);
 
     public async Task<RecordingSegmentEntry> CompleteAsync()
     {
