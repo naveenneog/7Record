@@ -113,3 +113,12 @@ When processing falls behind, new frames are dropped and counted rather than blo
 The first recoverable path copies BGRA pixels from each leased Direct3D surface, keeps the latest image in a 30 fps pacer, streams frames to the packaged media worker, and encodes a Matroska/H.264 temporary file. On stop, the file is published through D-010.
 
 This CPU-readback path is accepted only as a correctness prototype. It must be benchmarked against the 1080p60 CPU/drop targets and replaced with GPU sharing or a native hardware encoder path if it cannot meet them.
+
+## D-014: CPU readback is not the production encoder path
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+The benchmark in `docs/prototypes/capture-performance-2026-07-18.md` measured 1.42 CPU cores and 1.55 GB combined working set at 1.60 MP and 13.71 source fps. Although it produced zero drops and a 180 ms duration error, it did not approach 60 source fps.
+
+Keep BGRA readback only as a diagnostic/compatibility fallback. The production path must share Direct3D surfaces with Media Foundation or a narrow native encoder bridge and must be re-benchmarked at 1080p60.

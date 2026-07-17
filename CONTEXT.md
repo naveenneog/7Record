@@ -58,10 +58,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - `SevenRecord.Media.Worker` performs real synthetic encoder initialization. On the current machine NVENC, Quick Sync, and AMF are listed but fail runtime initialization; `libx264` validates successfully and is selected as an explicit fallback.
 - The selected `GraphicsCaptureItem` now starts a free-threaded Direct3D 11 frame pool. An automated picker run captured a real Explorer frame, normalized its QPC time, stopped cleanly, and reported zero dropped frames.
 - The first recoverable screen segment is complete: the app copied BGRA frames, paced a static source at 30 fps, encoded H.264 in the isolated worker, and atomically published a SHA-256-journaled Matroska segment.
+- The automated performance gate rejected CPU readback for production: 1.42 CPU cores and 1.55 GB working set at 1.60 MP / 13.71 source fps, despite zero drops and 180 ms duration error.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: benchmark the CPU-readback path at 1080p60 and replace it with GPU sharing/native Media Foundation encoding if it misses the accepted CPU or drop thresholds.
+- Next feature: prototype Direct3D-to-Media-Foundation surface encoding without CPU pixel copies, then repeat the 1080p60 gate.
 
 ## Environment Observed
 
