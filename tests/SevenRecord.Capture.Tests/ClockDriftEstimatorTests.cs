@@ -32,7 +32,7 @@ public sealed class ClockDriftEstimatorTests
             samplesAfterOneHour,
             48_000);
 
-        Assert.AreEqual(TimeSpan.FromMilliseconds(360), estimate.Drift);
+        Assert.AreEqual(360d, estimate.Drift.TotalMilliseconds, 0.001d);
         Assert.AreEqual(100d, estimate.PartsPerMillion, 0.001d);
         Assert.IsTrue(estimate.Exceeds(TimeSpan.FromMilliseconds(40)));
     }

@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using SevenRecord.Audio.Windows;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Infrastructure;
@@ -22,6 +23,7 @@ public sealed partial class MainPage : Page
         new EncoderReadinessProbe(),
     ]);
     private WindowsScreenCaptureSession? _captureSession;
+    private RecoverableAudioRecordingSession? _audioRecorder;
     private SurfaceScreenSegmentRecorder? _segmentRecorder;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
@@ -66,14 +68,19 @@ public sealed partial class MainPage : Page
         ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
 
         SurfaceScreenSegmentRecorder? pendingSegmentRecorder = null;
+        RecoverableAudioRecordingSession? pendingAudioRecorder = null;
         try
         {
             string projectRoot = CreateProjectRoot();
+            ProjectClock projectClock = ProjectClock.StartNew();
             pendingSegmentRecorder = await SurfaceScreenSegmentRecorder.CreateAsync(
                 projectRoot,
                 _selectedScreen.Width,
                 _selectedScreen.Height);
-            ProjectClock projectClock = ProjectClock.StartNew();
+            pendingAudioRecorder = RecoverableAudioRecordingSession.Start(
+                projectRoot,
+                projectClock);
+            pendingAudioRecorder.HealthChanged += OnAudioHealthChanged;
             WindowsScreenCaptureSession capture = WindowsScreenCaptureSession.Start(
                 _selectedScreen.Item,
                 projectClock,
@@ -82,7 +89,9 @@ public sealed partial class MainPage : Page
             capture.CaptureClosed += OnCaptureClosed;
             capture.CaptureFailed += OnCaptureFailed;
             _segmentRecorder = pendingSegmentRecorder;
+            _audioRecorder = pendingAudioRecorder;
             pendingSegmentRecorder = null;
+            pendingAudioRecorder = null;
             _captureSession = capture;
 
             StartRecordingButton.Content = "Stop recording";
@@ -99,6 +108,11 @@ public sealed partial class MainPage : Page
             if (pendingSegmentRecorder is not null)
             {
                 await pendingSegmentRecorder.DisposeAsync();
+            }
+            if (pendingAudioRecorder is not null)
+            {
+                pendingAudioRecorder.HealthChanged -= OnAudioHealthChanged;
+                await pendingAudioRecorder.DisposeAsync();
             }
 
             System.Diagnostics.Debug.WriteLine(exception);
@@ -277,34 +291,60 @@ public sealed partial class MainPage : Page
 
         CaptureFrameHealthSnapshot health = capture.Health;
         SurfaceScreenSegmentRecorder? segmentRecorder = _segmentRecorder;
+        RecoverableAudioRecordingSession? audioRecorder = _audioRecorder;
         _segmentRecorder = null;
-        if (segmentRecorder is not null)
+        _audioRecorder = null;
+        if (audioRecorder is not null)
         {
-            try
+            audioRecorder.HealthChanged -= OnAudioHealthChanged;
+        }
+
+        try
+        {
+            if (audioRecorder is not null)
+            {
+                await audioRecorder.StopAsync();
+            }
+
+            if (segmentRecorder is not null)
             {
                 RecordingSegmentEntry segment = await segmentRecorder.CompleteAsync();
+                AudioRecordingResult? audio = audioRecorder is null
+                    ? null
+                    : await audioRecorder.PublishAsync();
                 FrameStatusText.Text =
                     $"Saved {health.FramesReceived:N0} captured frames to {segment.RelativePath}; " +
+                    $"{health.FramesDropped:N0} dropped" +
+                    (audio is null
+                        ? "."
+                        : $"; audio saved to {audio.Microphone.RelativePath} and {audio.SystemAudio.RelativePath}.");
+            }
+            else
+            {
+                FrameStatusText.Text =
+                    $"Stopped after {health.FramesReceived:N0} frames; " +
                     $"{health.FramesDropped:N0} dropped.";
             }
-            catch (Exception exception)
-            {
-                System.Diagnostics.Debug.WriteLine(exception);
-                FrameStatusText.Text = $"Segment finalization failed: {exception.Message}";
-                ReadinessInfoBar.Title = "Recording could not be finalized";
-                ReadinessInfoBar.Message = exception.Message;
-                ReadinessInfoBar.Severity = InfoBarSeverity.Error;
-            }
-            finally
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+            FrameStatusText.Text = $"Segment finalization failed: {exception.Message}";
+            ReadinessInfoBar.Title = "Recording could not be finalized";
+            ReadinessInfoBar.Message = exception.Message;
+            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+        }
+        finally
+        {
+            if (segmentRecorder is not null)
             {
                 await segmentRecorder.DisposeAsync();
             }
-        }
-        else
-        {
-            FrameStatusText.Text =
-                $"Stopped after {health.FramesReceived:N0} frames; " +
-                $"{health.FramesDropped:N0} dropped.";
+
+            if (audioRecorder is not null)
+            {
+                await audioRecorder.DisposeAsync();
+            }
         }
 
         StartRecordingButton.Content = "New recording";
@@ -322,5 +362,18 @@ public sealed partial class MainPage : Page
         string projectName =
             $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
         return Path.Combine(videos, "7Record", "Projects", projectName);
+    }
+
+    private void OnAudioHealthChanged(AudioCaptureHealth health)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            string source = health.Source is AudioCaptureSource.Microphone
+                ? "Mic"
+                : "System";
+            AudioStatusText.Text =
+                $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
+                $"{health.Discontinuities} discontinuities.";
+        });
     }
 }

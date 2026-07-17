@@ -24,6 +24,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Wired live screen capture through a 30 fps frame pacer into the packaged media worker and crash-safe segment publisher.
 - Added an automated capture performance harness and rejected CPU readback as the production path after measuring 1.42 CPU cores and 1.55 GB at 13.71 source fps.
 - Added Direct3D-surface Media Foundation encoding; the working set fell to 559 MB with zero drops, while software-encoder CPU remained about 1.45 cores.
+- Added synchronized WASAPI microphone and loopback capture, fitted clock drift, discontinuity detection, recoverable WAV publication, and audio timing tests.
 
 ### Research
 
@@ -44,6 +45,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Running WinRT device discovery on the WinUI STA thread produced the same native crash; the Windows readiness probe now executes on an MTA worker and marshals only results back to the UI.
 - WPF and same-publisher WinUI benchmark windows were filtered by the system picker, while automated Edge selection remained pending; the working harness uses the picker-visible Android emulator and clears stale picker windows between runs.
 - Media Foundation initially left its output stream open through publication; closing it after transcode completion fixed the atomic MP4 move.
+- Remote Audio microphone capture showed variable loss (one 60-second run missed about 1.1 seconds), so dropouts are tracked separately from clock drift.
 
 ### Pending
 

@@ -13,6 +13,8 @@ public sealed class ClockDriftEstimator
     private readonly object _gate = new();
     private TimeSpan? _firstProjectTime;
     private TimeSpan? _firstSourceTime;
+    private double _sumProjectSquared;
+    private double _sumProjectTimesSource;
 
     public ClockDriftEstimate AddSample(
         TimeSpan projectTime,
@@ -32,10 +34,20 @@ public sealed class ClockDriftEstimator
 
             TimeSpan projectElapsed = projectTime - _firstProjectTime.Value;
             TimeSpan sourceElapsed = sourceTime - _firstSourceTime.Value;
-            TimeSpan drift = sourceElapsed - projectElapsed;
-            double partsPerMillion = projectElapsed == TimeSpan.Zero
-                ? 0
-                : drift.TotalSeconds / projectElapsed.TotalSeconds * 1_000_000d;
+            if (projectElapsed > TimeSpan.Zero)
+            {
+                double projectSeconds = projectElapsed.TotalSeconds;
+                double sourceSeconds = sourceElapsed.TotalSeconds;
+                _sumProjectSquared += projectSeconds * projectSeconds;
+                _sumProjectTimesSource += projectSeconds * sourceSeconds;
+            }
+
+            double clockRate = _sumProjectSquared == 0
+                ? 1
+                : _sumProjectTimesSource / _sumProjectSquared;
+            double partsPerMillion = (clockRate - 1d) * 1_000_000d;
+            TimeSpan drift = TimeSpan.FromSeconds(
+                (clockRate - 1d) * projectElapsed.TotalSeconds);
 
             return new ClockDriftEstimate(drift, projectElapsed, partsPerMillion);
         }

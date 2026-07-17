@@ -131,3 +131,12 @@ Keep BGRA readback only as a diagnostic/compatibility fallback. The production p
 Create `MediaStreamSample` objects directly from leased Direct3D 11 surfaces and feed them through `MediaStreamSource` to a hardware-enabled `MediaTranscoder`. Keep the capture-frame lease alive until the sample's `Processed` event.
 
 The prototype produced a recoverable 874 x 1980 H.264 MP4 with zero drops and reduced combined working set from 1.55 GB to 559 MB. CPU remained near 1.45 cores because the reference machine fell back to software encoding. Release still requires a true 1080p60 hardware-encoder benchmark.
+
+## D-016: Audio clock and recovery
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Capture microphone and WASAPI loopback independently through the Windows audio module. Stamp packets on the project QPC clock, track device sample position, fit drift over time, and record callback discontinuities separately.
+
+Write recoverable 32-bit float WAV intermediates and journal them after the screen segment. Preview/export may insert silence or apply bounded asynchronous resampling, but source samples remain immutable.

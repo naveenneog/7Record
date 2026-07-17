@@ -1,0 +1,202 @@
+using System.Diagnostics;
+using NAudio.Wave;
+using SevenRecord.Capture.Abstractions;
+using SevenRecord.Recording;
+
+namespace SevenRecord.Audio.Windows;
+
+public sealed record AudioRecordingResult(
+    RecordingSegmentEntry Microphone,
+    RecordingSegmentEntry SystemAudio,
+    AudioCaptureHealth? MicrophoneHealth,
+    AudioCaptureHealth? SystemAudioHealth);
+
+public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
+{
+    private readonly SynchronizedAudioCaptureSession _capture;
+    private readonly RecordingJournal _journal;
+    private readonly object _microphoneGate = new();
+    private readonly string _microphoneTemporaryPath;
+    private readonly WaveFileWriter _microphoneWriter;
+    private readonly RecordingSegmentPublisher _publisher;
+    private readonly Stopwatch _recordingTime = Stopwatch.StartNew();
+    private readonly object _systemAudioGate = new();
+    private readonly string _systemAudioTemporaryPath;
+    private readonly WaveFileWriter _systemAudioWriter;
+    private bool _completed;
+    private bool _stopped;
+    private AudioCaptureHealth? _microphoneHealth;
+    private AudioCaptureHealth? _systemAudioHealth;
+
+    private RecoverableAudioRecordingSession(
+        string projectRoot,
+        SynchronizedAudioCaptureSession capture)
+    {
+        _capture = capture;
+        _journal = new RecordingJournal(Path.Combine(projectRoot, "recording.journal"));
+        _publisher = new RecordingSegmentPublisher(projectRoot, _journal);
+        _microphoneTemporaryPath = Path.Combine(projectRoot, "temp", "microphone.partial.wav");
+        _systemAudioTemporaryPath = Path.Combine(projectRoot, "temp", "system-audio.partial.wav");
+        Directory.CreateDirectory(Path.Combine(projectRoot, "temp"));
+        _microphoneWriter = new WaveFileWriter(
+            _microphoneTemporaryPath,
+            capture.MicrophoneFormat);
+        _systemAudioWriter = new WaveFileWriter(
+            _systemAudioTemporaryPath,
+            capture.SystemAudioFormat);
+        _capture.PacketCaptured += OnPacketCaptured;
+        _capture.HealthChanged += OnHealthChanged;
+    }
+
+    public event Action<AudioCaptureHealth>? HealthChanged;
+
+    public static RecoverableAudioRecordingSession Start(
+        string projectRoot,
+        ProjectClock projectClock)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
+        ArgumentNullException.ThrowIfNull(projectClock);
+        Directory.CreateDirectory(projectRoot);
+
+        SynchronizedAudioCaptureSession capture = new(projectClock);
+        RecoverableAudioRecordingSession? session = null;
+        try
+        {
+            session = new RecoverableAudioRecordingSession(projectRoot, capture);
+            capture.Start();
+            return session;
+        }
+        catch
+        {
+            if (session is not null)
+            {
+                session.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+            else
+            {
+                capture.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+            throw;
+        }
+    }
+
+    public async Task<AudioRecordingResult> CompleteAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (_completed)
+        {
+            throw new InvalidOperationException("The audio recording is already complete.");
+        }
+
+        await StopAsync(cancellationToken);
+        return await PublishAsync(cancellationToken);
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        if (_stopped)
+        {
+            return;
+        }
+
+        _stopped = true;
+        _recordingTime.Stop();
+        await _capture.StopAsync(cancellationToken);
+        _capture.PacketCaptured -= OnPacketCaptured;
+        _capture.HealthChanged -= OnHealthChanged;
+        lock (_microphoneGate)
+        {
+            _microphoneWriter.Dispose();
+        }
+
+        lock (_systemAudioGate)
+        {
+            _systemAudioWriter.Dispose();
+        }
+    }
+
+    public async Task<AudioRecordingResult> PublishAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!_stopped)
+        {
+            throw new InvalidOperationException("Audio capture must stop before publication.");
+        }
+
+        if (_completed)
+        {
+            throw new InvalidOperationException("The audio recording is already complete.");
+        }
+
+        _completed = true;
+        RecordingSegmentEntry microphone = await _publisher.PublishAsync(
+            _microphoneTemporaryPath,
+            sequence: 2,
+            sourceId: "microphone",
+            start: TimeSpan.Zero,
+            duration: _recordingTime.Elapsed,
+            cancellationToken);
+        RecordingSegmentEntry systemAudio = await _publisher.PublishAsync(
+            _systemAudioTemporaryPath,
+            sequence: 3,
+            sourceId: "system-audio",
+            start: TimeSpan.Zero,
+            duration: _recordingTime.Elapsed,
+            cancellationToken);
+
+        return new AudioRecordingResult(
+            microphone,
+            systemAudio,
+            _microphoneHealth,
+            _systemAudioHealth);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_completed)
+        {
+            _capture.PacketCaptured -= OnPacketCaptured;
+            _capture.HealthChanged -= OnHealthChanged;
+            if (!_stopped)
+            {
+                _microphoneWriter.Dispose();
+                _systemAudioWriter.Dispose();
+            }
+        }
+
+        await _capture.DisposeAsync();
+        _journal.Dispose();
+    }
+
+    private void OnPacketCaptured(AudioCapturePacket packet)
+    {
+        if (packet.Source is AudioCaptureSource.Microphone)
+        {
+            lock (_microphoneGate)
+            {
+                _microphoneWriter.Write(packet.Data, 0, packet.Data.Length);
+            }
+        }
+        else
+        {
+            lock (_systemAudioGate)
+            {
+                _systemAudioWriter.Write(packet.Data, 0, packet.Data.Length);
+            }
+        }
+    }
+
+    private void OnHealthChanged(AudioCaptureHealth health)
+    {
+        if (health.Source is AudioCaptureSource.Microphone)
+        {
+            _microphoneHealth = health;
+        }
+        else
+        {
+            _systemAudioHealth = health;
+        }
+
+        HealthChanged?.Invoke(health);
+    }
+}
