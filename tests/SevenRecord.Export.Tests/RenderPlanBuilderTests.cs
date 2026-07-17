@@ -82,7 +82,7 @@ public sealed class RenderPlanBuilderTests
             [
                 new TimelineAutomationEvent(
                     "gap",
-                    "InsertSilence",
+                    "CursorZoom",
                     TimelineTrackKind.Microphone,
                     TimelineRange.FromStartAndDuration(
                         TimeSpan.FromSeconds(1),
@@ -98,6 +98,42 @@ public sealed class RenderPlanBuilderTests
             () => FfmpegRenderPlanExporter.CreateCommand(
                 plan,
                 "C:\\output\\video.mp4"));
+    }
+
+    [TestMethod]
+    public void MidTrackSilenceUsesTrimSilenceAndConcatFilters()
+    {
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(5),
+            [
+                Clip("screen", TimelineTrackKind.Screen, "screen.mp4"),
+                Clip("mic", TimelineTrackKind.Microphone, "mic.wav")
+            ],
+            [
+                new TimelineAutomationEvent(
+                    "gap",
+                    nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.InsertSilence),
+                    TimelineTrackKind.Microphone,
+                    TimelineRange.FromStartAndDuration(
+                        TimeSpan.FromSeconds(2),
+                        TimeSpan.FromMilliseconds(200)),
+                    "Insert 200 ms silence",
+                    true)
+            ]);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p);
+
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4").Arguments);
+
+        StringAssert.Contains(command, "anullsrc=r=48000:cl=stereo:d=0.200000");
+        StringAssert.Contains(command, "concat=n=3:v=0:a=1");
+        StringAssert.Contains(command, "atrim=start=0.000000:end=2.000000");
     }
 
     private static TimelineAutomationEvent Automation(string id) =>

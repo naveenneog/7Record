@@ -31,6 +31,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added the first editor timeline loader and UI for independent source tracks, audio repair events, and presenter-layout automation.
 - Added shared preview/export render plans, landscape/portrait/square presets, automation toggles, persistence, and regression tests.
 - Added isolated render-plan MP4 export with screen framing, optional camera overlay, mixed normalized audio, worker invocation, UI export controls, and real-file validation.
+- Added mid-track silence repair export and verified a requested 200 ms gap within 0.2 ms.
 
 ### Research
 

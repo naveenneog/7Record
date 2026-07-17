@@ -26,7 +26,8 @@ public static class FfmpegRenderPlanExporter
         TimelineAutomationEvent[] unsupported = plan.Automation
             .Where(item =>
                 item.Kind is not "PresenterLayout" and
-                not nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.AdjustPlaybackRate))
+                not nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.AdjustPlaybackRate) and
+                not nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.InsertSilence))
             .ToArray();
         if (unsupported.Length > 0)
         {
@@ -257,12 +258,71 @@ public static class FfmpegRenderPlanExporter
             }
         }
 
+        TimelineAutomationEvent[] gaps = plan.Automation
+            .Where(item =>
+                item.TargetTrack == track &&
+                item.Kind == nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.InsertSilence))
+            .OrderBy(item => item.Range.Start)
+            .ToArray();
+        string preparedLabel = $"{label}prepared";
+        if (gaps.Length == 0)
+        {
+            filters.Add($"[{inputIndex}:a]aresample=48000[{preparedLabel}]");
+        }
+        else
+        {
+            string splitLabels = string.Concat(
+                Enumerable.Range(0, gaps.Length + 1)
+                    .Select(index => $"[{label}source{index}]"));
+            filters.Add($"[{inputIndex}:a]asplit={gaps.Length + 1}{splitLabels}");
+
+            List<string> concatLabels = [];
+            double sourceCursor = 0;
+            double insertedDuration = 0;
+            for (int index = 0; index < gaps.Length; index++)
+            {
+                double sourceEnd =
+                    gaps[index].Range.Start.TotalSeconds - insertedDuration;
+                if (sourceEnd < sourceCursor)
+                {
+                    throw new InvalidOperationException(
+                        $"Overlapping audio gap automation on {track}.");
+                }
+
+                string clipLabel = $"{label}clip{index}";
+                filters.Add(
+                    $"[{label}source{index}]atrim=start={Seconds(sourceCursor)}:" +
+                    $"end={Seconds(sourceEnd)},asetpts=PTS-STARTPTS,aresample=48000[{clipLabel}]");
+                concatLabels.Add($"[{clipLabel}]");
+
+                string silenceLabel = $"{label}silence{index}";
+                filters.Add(
+                    $"anullsrc=r=48000:cl=stereo:d={Seconds(gaps[index].Range.Duration.TotalSeconds)}" +
+                    $"[{silenceLabel}]");
+                concatLabels.Add($"[{silenceLabel}]");
+
+                sourceCursor = sourceEnd;
+                insertedDuration += gaps[index].Range.Duration.TotalSeconds;
+            }
+
+            string finalClipLabel = $"{label}clip{gaps.Length}";
+            filters.Add(
+                $"[{label}source{gaps.Length}]atrim=start={Seconds(sourceCursor)}," +
+                $"asetpts=PTS-STARTPTS,aresample=48000[{finalClipLabel}]");
+            concatLabels.Add($"[{finalClipLabel}]");
+            filters.Add(
+                $"{string.Concat(concatLabels)}concat=n={concatLabels.Count}:v=0:a=1[{preparedLabel}]");
+        }
+
         filters.Add(
             rate == 1
-                ? $"[{inputIndex}:a]aresample=48000[{label}]"
-                : $"[{inputIndex}:a]aresample=48000,atempo={rate.ToString("F6", CultureInfo.InvariantCulture)}[{label}]");
+                ? $"[{preparedLabel}]anull[{label}]"
+                : $"[{preparedLabel}]atempo={rate.ToString("F6", CultureInfo.InvariantCulture)}[{label}]");
         labels.Add($"[{label}]");
     }
+
+    private static string Seconds(double value) =>
+        value.ToString("F6", CultureInfo.InvariantCulture);
 
     private static string ResolveSourcePath(string projectPath, string sourcePath)
     {
