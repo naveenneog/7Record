@@ -68,8 +68,10 @@
                     Content="Recorder"
                     Style="{StaticResource DefaultButtonStyle}" />
                 <Button
+                    x:Name="ProjectsNavigationButton"
                     HorizontalContentAlignment="Left"
                     AutomationProperties.Name="Open projects"
+                    Click="OnProjectsClicked"
                     Content="Projects"
                     Style="{StaticResource DefaultButtonStyle}" />
                 <Button
@@ -81,6 +83,7 @@
         </Border>
 
         <ScrollViewer
+            x:Name="ContentScrollViewer"
             Grid.Row="1"
             Grid.Column="1"
             HorizontalScrollMode="Disabled"
@@ -249,6 +252,33 @@
                         </StackPanel>
                     </Border>
                 </Grid>
+
+                <Border
+                    x:Name="ProjectsSection"
+                    Padding="24"
+                    Background="{StaticResource StudioSurfaceBrush}"
+                    BorderBrush="{StaticResource StudioDividerBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                    <StackPanel Spacing="16">
+                        <Grid>
+                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Recent projects" />
+                            <Button
+                                x:Name="RefreshProjectsButton"
+                                HorizontalAlignment="Right"
+                                Click="OnRefreshProjectsClicked"
+                                Content="Refresh" />
+                        </Grid>
+                        <TextBlock
+                            x:Name="ProjectsEmptyText"
+                            Style="{StaticResource BodyTextStyle}"
+                            Text="No recording projects yet." />
+                        <ListView
+                            x:Name="RecentProjectsList"
+                            MaxHeight="360"
+                            SelectionMode="None" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>

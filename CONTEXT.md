@@ -63,10 +63,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Microphone and WASAPI loopback now share the project QPC clock, publish independent float WAVs, report fitted drift, and record callback discontinuities. Remote Audio loopback is stable; microphone delivery can drop samples and is explicitly surfaced.
 - Projects now persist `audio-timing.json`; the analysis layer generates reversible silence insertion and bounded playback-rate events from gaps and sustained drift.
 - Webcam capture is implemented as an independent QPC-timestamped MediaFrameReader/MP4 source with normalized presenter-layout metadata. Current redirected cameras provide no frames, so the UI keeps camera disabled without blocking screen/audio.
+- The recorder shell now lists recent projects and derives Ready, Recoverable, Needs Attention, or Corrupt state from journal replay and segment verification.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: build the project library/recovery UI, then expose recorded screen/audio/camera sources in the editor timeline.
+- Next feature: expose recorded screen/audio/camera sources and repair events in the first editor timeline.
 
 ## Environment Observed
 
