@@ -208,3 +208,10 @@ If an enabled automation event is not implemented, export fails explicitly. It m
 Generate captions locally with Whisper.net and a cached GGML tiny model. Normalize source audio locally through FFmpeg, persist versioned caption JSON, and export SRT and WebVTT.
 
 Core caption generation does not require sign-in or cloud upload. Larger models can be offered later as an accuracy/performance choice.
+
+## D-024: Caption export
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Carry enabled timeline captions into the shared render plan. The isolated exporter generates a temporary SRT, burns it into the video with FFmpeg, and deletes the temporary file. Persistent SRT/VTT remain available as sidecar outputs.

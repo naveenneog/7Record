@@ -19,7 +19,10 @@ public sealed record RenderPlan(
     ExportAspectRatioPreset Preset,
     RenderCanvas Canvas,
     IReadOnlyList<TimelineClip> Clips,
-    IReadOnlyList<TimelineAutomationEvent> Automation);
+    IReadOnlyList<TimelineAutomationEvent> Automation)
+{
+    public IReadOnlyList<TimelineCaption> Captions { get; init; } = [];
+}
 
 public static class RenderPlanBuilder
 {
@@ -39,7 +42,10 @@ public static class RenderPlanBuilder
             timeline.Clips.ToArray(),
             timeline.Automation
                 .Where(item => item.IsEnabled && !disabledAutomation.Contains(item.Id))
-                .ToArray());
+                .ToArray())
+        {
+            Captions = timeline.Captions.ToArray(),
+        };
     }
 
     private static RenderCanvas CanvasFor(ExportAspectRatioPreset preset) =>

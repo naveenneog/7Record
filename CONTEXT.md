@@ -69,10 +69,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - The isolated media worker now exports persisted render plans to H.264/AAC fast-start MP4; a real 1920 x 1080 / 30 fps export was verified.
 - Export now applies mid-track silence repair non-destructively; a 200 ms event was measured as 199.865 ms in the final MP4.
 - Offline Whisper captions now generate versioned timeline segments plus SRT/VTT; the tiny model is cached under Local AppData and no audio is uploaded.
+- Enabled timeline captions are now burned into MP4 exports through a temporary worker-generated SRT while persistent SRT/VTT remain available.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: mux or burn enabled captions during MP4 export and add caption editing.
+- Next feature: add caption text/timing editing and timeline undo/redo.
 
 ## Environment Observed
 
