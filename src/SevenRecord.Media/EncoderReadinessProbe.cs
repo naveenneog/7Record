@@ -10,7 +10,7 @@ public sealed class EncoderReadinessProbe : ICaptureReadinessProbe
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        string? executablePath = FindExecutableOnPath("ffmpeg.exe");
+        string? executablePath = FfmpegLocator.FindExecutable();
         if (executablePath is null)
         {
             return ValueTask.FromResult<IReadOnlyList<CaptureReadinessItem>>(
@@ -33,26 +33,6 @@ public sealed class EncoderReadinessProbe : ICaptureReadinessProbe
                 true,
                 $"FFmpeg {versionLabel} found. Hardware encoder enumeration will run in the isolated media worker.")
         ]);
-    }
-
-    private static string? FindExecutableOnPath(string fileName)
-    {
-        string? path = Environment.GetEnvironmentVariable("PATH");
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-
-        foreach (string directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            string candidate = Path.Combine(directory.Trim(), fileName);
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return null;
     }
 
     private static CaptureReadinessItem CreateError(string message) =>

@@ -55,10 +55,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Packaged WinUI runtime validation exposed and fixed two native-crash paths: direct FFmpeg execution in the UI process and WinRT device discovery on the STA thread.
 - The QPC project clock and source drift estimator normalize screen/audio/camera timestamps, ignore initial device offsets, and detect accumulated parts-per-million drift over one-hour tests.
 - Segmented recovery now atomically publishes project-local media, durably appends checksummed journal entries, tolerates only a corrupt crash tail, and reports missing, tampered, orphaned, and partial files without deleting evidence.
+- `SevenRecord.Media.Worker` performs real synthetic encoder initialization. On the current machine NVENC, Quick Sync, and AMF are listed but fail runtime initialization; `libx264` validates successfully and is selected as an explicit fallback.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: isolate FFmpeg encoder enumeration in a media worker and implement deterministic hardware/software fallback selection before connecting encoded output to recovery segments.
+- Next feature: connect the selected `GraphicsCaptureItem` to a D3D11 frame session and feed timestamped frames toward the validated encoder/recovery boundaries.
 
 ## Environment Observed
 
