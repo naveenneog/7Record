@@ -7,6 +7,7 @@ using SevenRecord.Audio.Windows;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Camera.Windows;
+using SevenRecord.Domain.Projects;
 using SevenRecord.Infrastructure;
 using SevenRecord.Media;
 using SevenRecord.Recording;
@@ -80,11 +81,20 @@ public sealed partial class MainPage : Page
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         await RefreshReadinessAsync();
+        await RefreshProjectsAsync();
     }
 
     private async void OnRefreshReadinessClicked(object sender, RoutedEventArgs e)
     {
         await RefreshReadinessAsync();
+    }
+
+    private void OnProjectsClicked(object sender, RoutedEventArgs e) =>
+        ProjectsSection.StartBringIntoView();
+
+    private async void OnRefreshProjectsClicked(object sender, RoutedEventArgs e)
+    {
+        await RefreshProjectsAsync();
     }
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
@@ -439,6 +449,7 @@ public sealed partial class MainPage : Page
         {
             UpdateReadinessSummary();
         }
+        await RefreshProjectsAsync();
     }
 
     private static string CreateProjectRoot()
@@ -460,6 +471,37 @@ public sealed partial class MainPage : Page
                 $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
                 $"{health.Discontinuities} discontinuities.";
         });
+    }
+
+    private async Task RefreshProjectsAsync()
+    {
+        RefreshProjectsButton.IsEnabled = false;
+        try
+        {
+            string projectsRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos),
+                "7Record",
+                "Projects");
+            IReadOnlyList<ProjectSummary> projects =
+                await ProjectLibraryService.ListAsync(projectsRoot);
+            RecentProjectsList.Items.Clear();
+            foreach (ProjectSummary project in projects)
+            {
+                RecentProjectsList.Items.Add(
+                    $"{project.RecoveryState}  |  {project.Name}  |  " +
+                    $"{project.Duration:hh\\:mm\\:ss}  |  " +
+                    $"{project.MediaSegments} source(s){Environment.NewLine}" +
+                    project.StatusMessage);
+            }
+
+            ProjectsEmptyText.Visibility = projects.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+        finally
+        {
+            RefreshProjectsButton.IsEnabled = true;
+        }
     }
 
     private static async Task<int> SaveAudioRepairPlanAsync(

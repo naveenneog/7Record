@@ -158,3 +158,17 @@ Repair events are reversible timeline decisions. They never modify recorded audi
 Capture camera frames independently with `MediaFrameReader`, normalize them on the project QPC clock, convert incompatible camera textures through a GPU-only BGRA render target, and encode a separate Media Foundation MP4.
 
 Camera configuration must prove a processed frame within five seconds. Failure never blocks screen/audio recording. Presenter placement is stored in normalized `presenter-layout.json` metadata and is never baked into source media.
+
+## D-019: Project recovery states
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+The project library derives state from journal replay and segment inspection:
+
+- **Ready:** every journaled source exists and matches its length/SHA-256.
+- **Recoverable:** only a crash tail, orphan, or partial file is present.
+- **Needs Attention:** a journaled source is missing or damaged.
+- **Corrupt:** the journal is invalid before its final line.
+
+The library reports evidence; it never deletes or silently repairs source files.

@@ -27,6 +27,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added synchronized WASAPI microphone and loopback capture, fitted clock drift, discontinuity detection, recoverable WAV publication, and audio timing tests.
 - Added versioned audio timing metadata and deterministic silence/rate repair events without modifying source WAVs.
 - Added optional QPC-synchronized webcam capture, GPU camera-surface conversion, recoverable camera MP4 publication, presenter-layout metadata, and explicit first-frame validation.
+- Added project discovery, journal/segment health inspection, recovery states, recent-project UI, and regression tests.
 
 ### Research
 
