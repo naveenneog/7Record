@@ -22,6 +22,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added the first free-threaded Windows.Graphics.Capture frame pool, QPC frame timestamps, bounded processing queue, resize handling, frame-drop health, and a Direct3D readiness gate.
 - Added raw BGRA surface copying and an isolated worker command that encodes BGRA frame streams into Matroska segments.
 - Wired live screen capture through a 30 fps frame pacer into the packaged media worker and crash-safe segment publisher.
+- Added an automated capture performance harness and rejected CPU readback as the production path after measuring 1.42 CPU cores and 1.55 GB at 13.71 source fps.
 
 ### Research
 
@@ -40,6 +41,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Parallel broad web searches mostly timed out, so research switched to bounded official-page retrieval.
 - Running `ffmpeg -encoders` directly from the packaged WinUI process crashed the Windows App Runtime with `0xc000027b` / `0x8000ffff`; readiness now performs safe executable discovery and leaves encoder enumeration to the isolated media worker required by D-008.
 - Running WinRT device discovery on the WinUI STA thread produced the same native crash; the Windows readiness probe now executes on an MTA worker and marshals only results back to the UI.
+- WPF and same-publisher WinUI benchmark windows were filtered by the system picker, while automated Edge selection remained pending; the working harness uses the picker-visible Android emulator and clears stale picker windows between runs.
 
 ### Pending
 
