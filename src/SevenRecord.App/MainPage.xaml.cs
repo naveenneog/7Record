@@ -832,6 +832,20 @@ public sealed partial class MainPage : Page
             if (segmentRecorder is not null)
             {
                 RecordingSegmentEntry segment = await segmentRecorder.CompleteAsync();
+                int loadingIntervals = 0;
+                if (projectRoot is not null)
+                {
+                    string workerPath = Path.Combine(
+                        AppContext.BaseDirectory,
+                        "MediaWorker",
+                        "SevenRecord.Media.Worker.exe");
+                    LoadingDetectionWorkerResult loading =
+                        await MediaWorkerLoadingClient.DetectAsync(
+                            workerPath,
+                            Path.Combine(projectRoot, segment.RelativePath),
+                            Path.Combine(projectRoot, "loading-speed-plan.json"));
+                    loadingIntervals = loading.Succeeded ? loading.Intervals : 0;
+                }
                 AudioRecordingResult? audio = audioRecorder is null
                     ? null
                     : await audioRecorder.PublishAsync();
@@ -854,7 +868,8 @@ public sealed partial class MainPage : Page
                           $"{audio.SystemAudio.RelativePath}; {repairEvents} timing repairs suggested") +
                     (camera is null
                         ? "."
-                        : $"; camera saved to {camera.Segment.RelativePath} with {camera.Layout.Mode} layout.");
+                        : $"; camera saved to {camera.Segment.RelativePath} with {camera.Layout.Mode} layout.") +
+                    $" {loadingIntervals} waiting interval(s) suggested.";
             }
             else
             {
