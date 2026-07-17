@@ -30,7 +30,8 @@ public static class FfmpegRenderPlanExporter
             .Where(item =>
                 item.Kind is not "PresenterLayout" and
                 not nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.AdjustPlaybackRate) and
-                not nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.InsertSilence))
+                not nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.InsertSilence) and
+                not "CursorZoom")
             .ToArray();
         if (unsupported.Length > 0)
         {
@@ -82,16 +83,50 @@ public static class FfmpegRenderPlanExporter
             "force_original_aspect_ratio=decrease," +
             $"pad={plan.Canvas.Width}:{plan.Canvas.Height}:(ow-iw)/2:(oh-ih)/2:color=black[base]"
         ];
+        string screenLabel = "base";
+        TimelineAutomationEvent[] zooms = plan.Automation
+            .Where(item => item.Kind == "CursorZoom")
+            .OrderBy(item => item.Range.Start)
+            .ToArray();
+        if (zooms.Length > 0)
+        {
+            string zoomExpression = "1" + string.Concat(
+                zooms.Select(zoom =>
+                    $"+({ZoomValue(zoom, "scale", 1.8)}-1)*" +
+                    $"if(between(in_time,{Seconds(zoom.Range.Start.TotalSeconds)}," +
+                    $"{Seconds(zoom.Range.End.TotalSeconds)})," +
+                    $"sin(PI*(in_time-{Seconds(zoom.Range.Start.TotalSeconds)})/" +
+                    $"{Seconds(zoom.Range.Duration.TotalSeconds)}),0)"));
+            string xExpression = "(iw-iw/zoom)/2";
+            string yExpression = "(ih-ih/zoom)/2";
+            foreach (TimelineAutomationEvent zoom in zooms.Reverse())
+            {
+                string active =
+                    $"between(in_time,{Seconds(zoom.Range.Start.TotalSeconds)}," +
+                    $"{Seconds(zoom.Range.End.TotalSeconds)})";
+                xExpression =
+                    $"if({active},max(0,min(iw-iw/zoom," +
+                    $"{Seconds(ZoomValue(zoom, "centerX", 0.5))}*iw-iw/zoom/2)),{xExpression})";
+                yExpression =
+                    $"if({active},max(0,min(ih-ih/zoom," +
+                    $"{Seconds(ZoomValue(zoom, "centerY", 0.5))}*ih-ih/zoom/2)),{yExpression})";
+            }
+
+            filters.Add(
+                $"[base]zoompan=z='{zoomExpression}':x='{xExpression}':y='{yExpression}':" +
+                $"d=1:s={plan.Canvas.Width}x{plan.Canvas.Height}:fps=30[zoomed]");
+            screenLabel = "zoomed";
+        }
 
         if (cameraIndex >= 0)
         {
             int cameraWidth = Math.Max(240, plan.Canvas.Width / 4);
             filters.Add($"[{cameraIndex}:v]scale={cameraWidth}:-2[camera]");
-            filters.Add("[base][camera]overlay=W-w-48:H-h-48[composite]");
+            filters.Add($"[{screenLabel}][camera]overlay=W-w-48:H-h-48[composite]");
         }
         else
         {
-            filters.Add("[base]null[composite]");
+            filters.Add($"[{screenLabel}]null[composite]");
         }
 
         if (!string.IsNullOrWhiteSpace(subtitlePath))
@@ -370,6 +405,14 @@ public static class FfmpegRenderPlanExporter
 
     private static string Seconds(double value) =>
         value.ToString("F6", CultureInfo.InvariantCulture);
+
+    private static double ZoomValue(
+        TimelineAutomationEvent zoom,
+        string key,
+        double defaultValue) =>
+        zoom.NumericData.TryGetValue(key, out double value)
+            ? value
+            : defaultValue;
 
     private static string EscapeFilterPath(string path) =>
         Path.GetFullPath(path)

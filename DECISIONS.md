@@ -233,3 +233,12 @@ Caption edits update the timeline/render plan but never change recorded audio.
 Sample cursor position and button edges on the project QPC clock, store normalized foreground-window coordinates, and generate click-centered zoom suggestions as reversible screen automation.
 
 Cursor capture is optional. If the Windows desktop session does not expose a cursor, recording continues without metadata and no empty success-shaped file is written.
+
+## D-027: Cursor zoom rendering
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Carry cursor zoom center, scale, start, and duration as structured automation metadata. Render enabled events with time-based FFmpeg zoompan expressions before camera overlays and caption burn-in.
+
+Disabling the event removes the zoom from the render plan without modifying screen media.

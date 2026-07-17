@@ -22,7 +22,11 @@ public sealed record TimelineAutomationEvent(
     TimelineTrackKind TargetTrack,
     TimelineRange Range,
     string Description,
-    bool IsEnabled);
+    bool IsEnabled)
+{
+    public IReadOnlyDictionary<string, double> NumericData { get; init; } =
+        new Dictionary<string, double>();
+}
 
 public sealed record TimelineCaption(
     string Id,
