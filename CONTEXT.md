@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-17 19:35 IST
+Last updated: 2026-07-17 21:20 IST
 
 ## Mission
 
@@ -35,12 +35,14 @@ The user then warned that the device will restart and requested all context be s
 
 ## Research State
 
-Two background research agents were launched before restart:
+Research is complete and saved in:
 
-- `market-researcher`: researching Screen Studio, Descript, Loom, Tella, Camtasia, OBS, Riverside, CapCut, modern creator features, complaints, and MVP prioritization.
-- `architecture-researcher`: comparing native C++/WinUI, C#/.NET, Avalonia/WPF, Tauri/Rust, Electron, and Qt; researching Windows.Graphics.Capture, Desktop Duplication, WASAPI loopback, Media Foundation, FFmpeg, encoding, recovery, and testing.
+- `docs/research/market-landscape.md`
+- `docs/research/windows-architecture.md`
 
-The direct web searches timed out and produced no usable results. On resume, first check whether the background agent results survived. If not, restart equivalent research tasks.
+Two restarted research agents were cancelled without findings. Broad parallel web searches also timed out, so the successful approach used bounded retrieval of official vendor and platform documentation. The research reports preserve primary sources, uncertainty, prototype requirements, and acceptance thresholds.
+
+The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11, WASAPI, Media Foundation, a supervised FFmpeg worker, and MSIX. See `DECISIONS.md` D-005 through D-008.
 
 ## Environment Observed
 
@@ -50,8 +52,10 @@ The direct web searches timed out and produced no usable results. On resume, fir
 - npm: `11.13.0`
 - .NET SDK: `10.0.302`
 - Rust was not installed.
-- FFmpeg availability was not confirmed because the tool probe stopped at the missing Rust command.
-- This directory was not a Git repository at session start.
+- FFmpeg `8.1.2-full_build-www.gyan.dev` is installed and working.
+- Visual Studio Community 2026 and Visual Studio Enterprise 2022 are installed.
+- Windows App Runtime 1.6 through 2.3 is installed.
+- The repository is initialized; foundation commit is `219dbde`.
 
 ## Product and Design Files
 
@@ -90,7 +94,7 @@ The direct web searches timed out and produced no usable results. On resume, fir
 - Cloud review links and team collaboration as an optional layer.
 - macOS capture implementation.
 
-## Architecture Principles Pending Research Confirmation
+## Accepted Architecture Principles
 
 - Separate capture, media, analysis, project model, editor UI, preview, and export into stable modules.
 - Store screen, camera, microphone, system audio, cursor events, keystrokes (opt-in), and edit decisions separately.
@@ -103,23 +107,18 @@ The direct web searches timed out and produced no usable results. On resume, fir
 ## Required Resume Sequence
 
 1. Read `CONTEXT.md`, `PRODUCT.md`, `DESIGN.md`, `DECISIONS.md`, and `CHANGELOG.md`.
-2. Query the session todos if still available; otherwise reconstruct them from the checklist below.
-3. Retrieve or restart the two research agents and save their findings under `docs/research/`.
-4. Confirm the production stack from evidence. Current likely candidates are:
-   - C#/.NET + Windows-native capture/media core and a native desktop shell.
-   - Electron only if research proves it is the fastest reliable way to deliver complete capture now without compromising recovery/performance.
-   - Tauri/Rust is not the immediate default because Rust is absent and Windows-first native media integration remains required.
-5. Initialize Git and commit documentation as the first scoped commit with the required Copilot trailers.
-6. Scaffold the app and commit each feature independently.
-7. Implement and validate capture before building advanced editor automation.
-8. Maintain `CHANGELOG.md` and `DECISIONS.md`, including attempted approaches and failures.
+2. Read both reports under `docs/research/`.
+3. Scaffold the .NET 10 solution and WinUI 3 application shell using the module boundaries in the architecture report.
+4. Prototype capture clock/synchronization, segmented recovery, and the GPU-to-encoder path before advanced editor work.
+5. Commit every feature independently.
+6. Maintain `CHANGELOG.md` and `DECISIONS.md`, including attempted approaches and failures.
 
 ## Work Checklist
 
-- [ ] Complete and save market research.
-- [ ] Complete and save technical architecture research.
-- [ ] Select stack and update `DECISIONS.md`.
-- [ ] Initialize repository and commit foundation docs.
+- [x] Complete and save market research.
+- [x] Complete and save technical architecture research.
+- [x] Select stack and update `DECISIONS.md`.
+- [x] Initialize repository and commit foundation docs.
 - [ ] Scaffold desktop app and automated tests.
 - [ ] Build capture source selection and readiness UI.
 - [ ] Implement screen capture.

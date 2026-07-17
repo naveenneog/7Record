@@ -17,6 +17,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Started a Windows capture architecture research agent.
 - Added a sourced competitor matrix and MVP recommendation in `docs/research/market-landscape.md`.
 - Added the Windows capture/media architecture recommendation in `docs/research/windows-architecture.md`.
+- Accepted the production stack and capture/recovery/process-boundary decisions in `DECISIONS.md`.
+- Updated `CONTEXT.md` with the completed research state and exact scaffold/prototype sequence.
 
 ### Attempted
 
@@ -27,4 +29,4 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 
 ### Pending
 
-- Stack decision, app scaffold, capture implementation, smart editor, tests, packaging, and release validation.
+- App scaffold, capture implementation, smart editor, tests, packaging, and release validation.

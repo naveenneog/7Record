@@ -27,13 +27,44 @@ Automatic cursor zooms, silence changes, loading speed-ups, presenter scenes, ca
 
 ## D-005: Technical stack
 
-**Status:** Pending research
+**Status:** Accepted  
+**Date:** 2026-07-17
 
-Do not lock the framework until the architecture research compares capture reliability, GPU encoding, system audio, webcam synchronization, recovery, timeline preview performance, packaging, and testability. Prefer evidence over familiarity.
+The selected stack is:
 
-Current candidates:
+- C#/.NET 10 application and domain services.
+- WinUI 3 on the stable Windows App SDK for the Windows shell.
+- Windows.Graphics.Capture with Direct3D 11 for primary screen/window capture.
+- WASAPI for system-audio loopback and microphone capture.
+- Media Foundation for camera ingestion and live source encoding.
+- FFmpeg as a supervised worker for probing, proxies, analysis, composition, and export.
+- MSIX as the primary signed distribution format.
 
-1. C#/.NET desktop shell with Windows-native capture/media services.
-2. Native C++ media core with a higher-level UI.
-3. Electron for rapid delivery if Windows capture/audio and recovery prove production-worthy.
-4. Tauri/Rust only if the Rust toolchain and required media integrations justify setup cost.
+A narrow C++/WinRT bridge may be introduced only where profiling or API access proves it necessary. The first implementation must not create a large native core speculatively.
+
+This decision follows the evidence and risks documented in `docs/research/windows-architecture.md`. WPF remains the fallback shell if the WinUI timeline/Direct3D prototype fails its interaction target. Avalonia, Electron, Tauri, and Qt do not remove the need for platform-specific capture and add cost to the Windows-first MVP.
+
+## D-006: Capture API strategy
+
+**Status:** Accepted  
+**Date:** 2026-07-17
+
+Use Windows.Graphics.Capture as the default monitor/window capture path. Region capture crops a monitor surface on the GPU. Desktop Duplication is a fallback/prototype for lower-level pointer and monitor-update needs, not the primary architecture.
+
+Cursor interaction metadata is recorded separately on the project QPC clock. Where supported, the baked cursor may be disabled and reconstructed non-destructively.
+
+## D-007: Recording recovery model
+
+**Status:** Accepted  
+**Date:** 2026-07-17
+
+Record independent, short, finalized source segments plus an append-only checksummed journal. Project state is published atomically. A crash may lose only the active segment, never the complete recording.
+
+The intermediate container remains prototype-gated: compare short MP4, fragmented MP4, and Matroska before accepting a container decision.
+
+## D-008: FFmpeg process boundary
+
+**Status:** Accepted  
+**Date:** 2026-07-17
+
+FFmpeg runs as a pinned, supervised worker outside the UI/capture process. Capture must survive analysis-worker failure. The application owns capability probing, timeouts, cancellation, logs, and software fallback.
