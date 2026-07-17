@@ -68,3 +68,12 @@ The intermediate container remains prototype-gated: compare short MP4, fragmente
 **Date:** 2026-07-17
 
 FFmpeg runs as a pinned, supervised worker outside the UI/capture process. Capture must survive analysis-worker failure. The application owns capability probing, timeouts, cancellation, logs, and software fallback.
+
+## D-009: Capture clock
+
+**Status:** Accepted  
+**Date:** 2026-07-17
+
+Use QueryPerformanceCounter as the project clock. Windows.Graphics.Capture `SystemRelativeTime`, audio device positions, camera timestamps, cursor events, and health events are normalized to a zero-based project time.
+
+Each independently clocked source tracks elapsed source time against elapsed project time. Initial device offsets are ignored; accumulated drift is measured in duration and parts per million. Correction is applied only in preview/export so immutable source timing remains available for diagnosis and reprocessing.

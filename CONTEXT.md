@@ -53,10 +53,11 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Capture readiness now checks screen-capture support, camera, microphone, system audio, storage, and FFmpeg availability without blocking the UI thread.
 - The secure Windows capture picker selects a display or application window; recording remains disabled until a target and all required checks are ready.
 - Packaged WinUI runtime validation exposed and fixed two native-crash paths: direct FFmpeg execution in the UI process and WinRT device discovery on the STA thread.
+- The QPC project clock and source drift estimator normalize screen/audio/camera timestamps, ignore initial device offsets, and detect accumulated parts-per-million drift over one-hour tests.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: implement the QPC capture clock and synchronization prototype, then connect the selected `GraphicsCaptureItem` to the first frame pipeline.
+- Next feature: connect the selected `GraphicsCaptureItem` to the first D3D11 frame pipeline using the accepted project clock.
 
 ## Environment Observed
 
