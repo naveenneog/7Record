@@ -15,12 +15,18 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 
 - Started a market research agent covering modern creator screen recorders and smart editors.
 - Started a Windows capture architecture research agent.
+- Added a sourced competitor matrix and MVP recommendation in `docs/research/market-landscape.md`.
+- Added the Windows capture/media architecture recommendation in `docs/research/windows-architecture.md`.
+- Accepted the production stack and capture/recovery/process-boundary decisions in `DECISIONS.md`.
+- Updated `CONTEXT.md` with the completed research state and exact scaffold/prototype sequence.
 
 ### Attempted
 
 - Direct web research calls for competitor and Windows capture information timed out and returned no usable findings.
 - Environment probe confirmed Node.js, npm, and .NET; the probe stopped when Rust was not found, so FFmpeg still needs a separate check.
+- Both restarted research agents were cancelled after about 22 minutes without returning findings.
+- Parallel broad web searches mostly timed out, so research switched to bounded official-page retrieval.
 
 ### Pending
 
-- Research synthesis, stack selection, repository initialization, app scaffold, capture implementation, smart editor, tests, packaging, and release validation.
+- App scaffold, capture implementation, smart editor, tests, packaging, and release validation.
