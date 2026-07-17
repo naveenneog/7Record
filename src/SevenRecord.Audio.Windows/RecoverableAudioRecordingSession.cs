@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Text.Json;
 using NAudio.Wave;
 using SevenRecord.Capture.Abstractions;
+using SevenRecord.Domain.Audio;
 using SevenRecord.Recording;
 
 namespace SevenRecord.Audio.Windows;
@@ -8,21 +10,28 @@ namespace SevenRecord.Audio.Windows;
 public sealed record AudioRecordingResult(
     RecordingSegmentEntry Microphone,
     RecordingSegmentEntry SystemAudio,
+    AudioTimingManifest Timing,
+    string TimingManifestPath,
     AudioCaptureHealth? MicrophoneHealth,
     AudioCaptureHealth? SystemAudioHealth);
 
 public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
 {
+    private static readonly JsonSerializerOptions SerializerOptions =
+        new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private readonly SynchronizedAudioCaptureSession _capture;
     private readonly RecordingJournal _journal;
+    private readonly List<AudioGapMetadata> _microphoneGaps = [];
     private readonly object _microphoneGate = new();
     private readonly string _microphoneTemporaryPath;
     private readonly WaveFileWriter _microphoneWriter;
     private readonly RecordingSegmentPublisher _publisher;
+    private readonly string _projectRoot;
     private readonly Stopwatch _recordingTime = Stopwatch.StartNew();
     private readonly object _systemAudioGate = new();
     private readonly string _systemAudioTemporaryPath;
     private readonly WaveFileWriter _systemAudioWriter;
+    private readonly List<AudioGapMetadata> _systemAudioGaps = [];
     private bool _completed;
     private bool _stopped;
     private AudioCaptureHealth? _microphoneHealth;
@@ -32,6 +41,7 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         string projectRoot,
         SynchronizedAudioCaptureSession capture)
     {
+        _projectRoot = projectRoot;
         _capture = capture;
         _journal = new RecordingJournal(Path.Combine(projectRoot, "recording.journal"));
         _publisher = new RecordingSegmentPublisher(projectRoot, _journal);
@@ -143,10 +153,23 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
             start: TimeSpan.Zero,
             duration: _recordingTime.Elapsed,
             cancellationToken);
+        AudioTimingManifest timing = CreateTimingManifest();
+        string timingManifestPath = Path.Combine(_projectRoot, "audio-timing.json");
+        string temporaryManifestPath = timingManifestPath + ".tmp";
+        string json = JsonSerializer.Serialize(
+            timing,
+            SerializerOptions);
+        await File.WriteAllTextAsync(
+            temporaryManifestPath,
+            json,
+            cancellationToken);
+        File.Move(temporaryManifestPath, timingManifestPath, overwrite: true);
 
         return new AudioRecordingResult(
             microphone,
             systemAudio,
+            timing,
+            Path.GetRelativePath(_projectRoot, timingManifestPath),
             _microphoneHealth,
             _systemAudioHealth);
     }
@@ -174,6 +197,7 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         {
             lock (_microphoneGate)
             {
+                AddGap(_microphoneGaps, packet);
                 _microphoneWriter.Write(packet.Data, 0, packet.Data.Length);
             }
         }
@@ -181,6 +205,7 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         {
             lock (_systemAudioGate)
             {
+                AddGap(_systemAudioGaps, packet);
                 _systemAudioWriter.Write(packet.Data, 0, packet.Data.Length);
             }
         }
@@ -198,5 +223,46 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         }
 
         HealthChanged?.Invoke(health);
+    }
+
+    private AudioTimingManifest CreateTimingManifest() =>
+        new(
+            1,
+            [
+                CreateTrackTiming(
+                    AudioTrackKind.Microphone,
+                    _microphoneGaps,
+                    _microphoneHealth),
+                CreateTrackTiming(
+                    AudioTrackKind.SystemAudio,
+                    _systemAudioGaps,
+                    _systemAudioHealth)
+            ]);
+
+    private static AudioTrackTimingMetadata CreateTrackTiming(
+        AudioTrackKind track,
+        IReadOnlyList<AudioGapMetadata> gaps,
+        AudioCaptureHealth? health)
+    {
+        ClockDriftEstimate drift = health?.Drift ?? default;
+        return new AudioTrackTimingMetadata(
+            track,
+            gaps.ToArray(),
+            new AudioClockMetadata(
+                drift.Drift,
+                drift.ObservedDuration,
+                drift.PartsPerMillion));
+    }
+
+    private static void AddGap(
+        List<AudioGapMetadata> gaps,
+        AudioCapturePacket packet)
+    {
+        if (packet.HasDiscontinuity &&
+            packet.GapStart is TimeSpan gapStart &&
+            packet.MissingDuration > TimeSpan.Zero)
+        {
+            gaps.Add(new AudioGapMetadata(gapStart, packet.MissingDuration));
+        }
     }
 }

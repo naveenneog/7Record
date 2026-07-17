@@ -140,3 +140,12 @@ The prototype produced a recoverable 874 x 1980 H.264 MP4 with zero drops and re
 Capture microphone and WASAPI loopback independently through the Windows audio module. Stamp packets on the project QPC clock, track device sample position, fit drift over time, and record callback discontinuities separately.
 
 Write recoverable 32-bit float WAV intermediates and journal them after the screen segment. Preview/export may insert silence or apply bounded asynchronous resampling, but source samples remain immutable.
+
+## D-017: Audio repair events
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Persist versioned `audio-timing.json` metadata beside source WAVs. Convert gaps into `InsertSilence` events immediately. Convert sustained drift into `AdjustPlaybackRate` only after 30 seconds and 50 ppm, clamped to 0.995-1.005.
+
+Repair events are reversible timeline decisions. They never modify recorded audio samples.

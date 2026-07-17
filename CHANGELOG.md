@@ -25,6 +25,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added an automated capture performance harness and rejected CPU readback as the production path after measuring 1.42 CPU cores and 1.55 GB at 13.71 source fps.
 - Added Direct3D-surface Media Foundation encoding; the working set fell to 559 MB with zero drops, while software-encoder CPU remained about 1.45 cores.
 - Added synchronized WASAPI microphone and loopback capture, fitted clock drift, discontinuity detection, recoverable WAV publication, and audio timing tests.
+- Added versioned audio timing metadata and deterministic silence/rate repair events without modifying source WAVs.
 
 ### Research
 
