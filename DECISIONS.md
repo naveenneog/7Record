@@ -199,3 +199,12 @@ Initial framing presets are landscape 1920 x 1080, portrait 1080 x 1920, and squ
 Execute `render-plan.json` in the isolated media worker. The first exporter supports screen scale/pad, optional camera overlay, microphone/system mix, loudness normalization, mid-track silence insertion, bounded whole-track playback rate, H.264/AAC, and fast-start MP4.
 
 If an enabled automation event is not implemented, export fails explicitly. It must never silently omit an edit.
+
+## D-023: Local captions
+
+**Status:** Accepted  
+**Date:** 2026-07-18
+
+Generate captions locally with Whisper.net and a cached GGML tiny model. Normalize source audio locally through FFmpeg, persist versioned caption JSON, and export SRT and WebVTT.
+
+Core caption generation does not require sign-in or cloud upload. Larger models can be offered later as an accuracy/performance choice.

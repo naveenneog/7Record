@@ -321,6 +321,11 @@
                             HorizontalAlignment="Left"
                             Click="OnExportMp4Clicked"
                             Content="Export MP4" />
+                        <Button
+                            x:Name="GenerateCaptionsButton"
+                            HorizontalAlignment="Left"
+                            Click="OnGenerateCaptionsClicked"
+                            Content="Generate local captions" />
                         <TextBlock
                             x:Name="RenderPlanSummaryText"
                             Style="{StaticResource BodyTextStyle}"

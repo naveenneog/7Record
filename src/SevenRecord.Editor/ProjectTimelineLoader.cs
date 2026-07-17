@@ -1,5 +1,6 @@
 using System.Text.Json;
 using SevenRecord.Domain.Audio;
+using SevenRecord.Domain.Captions;
 using SevenRecord.Domain.Timeline;
 using SevenRecord.Domain.Video;
 using SevenRecord.Recording;
@@ -37,6 +38,27 @@ public static class ProjectTimelineLoader
             : clips.Max(clip => clip.Range.End);
 
         List<TimelineAutomationEvent> automation = [];
+        TimelineCaption[] captions = [];
+        string captionsPath = Path.Combine(fullProjectPath, "captions.json");
+        if (File.Exists(captionsPath))
+        {
+            string json = await File.ReadAllTextAsync(captionsPath, cancellationToken);
+            CaptionDocument? document =
+                JsonSerializer.Deserialize<CaptionDocument>(json, SerializerOptions);
+            captions = document?.Segments
+                .Select(segment => new TimelineCaption(
+                    segment.Id,
+                    TimelineRange.FromStartAndDuration(
+                        segment.Start,
+                        segment.End - segment.Start),
+                    segment.Text))
+                .ToArray() ?? [];
+            if (captions.Length > 0)
+            {
+                duration = TimeSpan.FromTicks(
+                    Math.Max(duration.Ticks, captions.Max(item => item.Range.End.Ticks)));
+            }
+        }
         string repairPath = Path.Combine(fullProjectPath, "audio-repair-plan.json");
         if (File.Exists(repairPath))
         {
@@ -83,7 +105,10 @@ public static class ProjectTimelineLoader
             automation
                 .OrderBy(item => item.Range.Start)
                 .ThenBy(item => item.Kind)
-                .ToArray());
+                .ToArray())
+        {
+            Captions = captions,
+        };
     }
 
     private static TimelineTrackKind TrackForSource(string sourceId) =>

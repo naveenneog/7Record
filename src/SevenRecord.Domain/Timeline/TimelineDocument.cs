@@ -24,8 +24,16 @@ public sealed record TimelineAutomationEvent(
     string Description,
     bool IsEnabled);
 
+public sealed record TimelineCaption(
+    string Id,
+    TimelineRange Range,
+    string Text);
+
 public sealed record TimelineDocument(
     string ProjectPath,
     TimeSpan Duration,
     IReadOnlyList<TimelineClip> Clips,
-    IReadOnlyList<TimelineAutomationEvent> Automation);
+    IReadOnlyList<TimelineAutomationEvent> Automation)
+{
+    public IReadOnlyList<TimelineCaption> Captions { get; init; } = [];
+}

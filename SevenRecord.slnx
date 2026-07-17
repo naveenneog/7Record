@@ -14,6 +14,7 @@
     <Project Path="src/SevenRecord.Media.Worker/SevenRecord.Media.Worker.csproj" />
     <Project Path="src/SevenRecord.Media/SevenRecord.Media.csproj" />
     <Project Path="src/SevenRecord.Recording/SevenRecord.Recording.csproj" />
+    <Project Path="src/SevenRecord.Transcription/SevenRecord.Transcription.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SevenRecord.Analysis.Tests/SevenRecord.Analysis.Tests.csproj" />
@@ -25,9 +26,11 @@
     <Project Path="tests/SevenRecord.Infrastructure.Tests/SevenRecord.Infrastructure.Tests.csproj" />
     <Project Path="tests/SevenRecord.Media.Tests/SevenRecord.Media.Tests.csproj" />
     <Project Path="tests/SevenRecord.Recording.Tests/SevenRecord.Recording.Tests.csproj" />
+    <Project Path="tests/SevenRecord.Transcription.Tests/SevenRecord.Transcription.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/SevenRecord.Audio.Probe/SevenRecord.Audio.Probe.csproj" />
     <Project Path="tools/SevenRecord.Camera.Probe/SevenRecord.Camera.Probe.csproj" />
+    <Project Path="tools/SevenRecord.Transcription.Probe/SevenRecord.Transcription.Probe.csproj" />
   </Folder>
 </Solution>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using SevenRecord.Domain.Audio;
+using SevenRecord.Domain.Captions;
 using SevenRecord.Domain.Timeline;
 using SevenRecord.Domain.Video;
 using SevenRecord.Recording;
@@ -36,6 +37,19 @@ public sealed class ProjectTimelineLoaderTests
             await File.WriteAllTextAsync(
                 Path.Combine(project, "presenter-layout.json"),
                 JsonSerializer.Serialize(PresenterLayoutSettings.DefaultOverlay));
+            await File.WriteAllTextAsync(
+                Path.Combine(project, "captions.json"),
+                JsonSerializer.Serialize(
+                    new CaptionDocument(
+                        1,
+                        "en",
+                        [
+                            new CaptionSegment(
+                                "caption",
+                                TimeSpan.FromSeconds(1),
+                                TimeSpan.FromSeconds(2),
+                                "Hello")
+                        ])));
 
             TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(project);
 
@@ -43,6 +57,7 @@ public sealed class ProjectTimelineLoaderTests
             Assert.IsTrue(timeline.Clips.Any(clip => clip.Track is TimelineTrackKind.Screen));
             Assert.IsTrue(timeline.Clips.Any(clip => clip.Track is TimelineTrackKind.Microphone));
             Assert.HasCount(2, timeline.Automation);
+            Assert.HasCount(1, timeline.Captions);
             Assert.IsTrue(timeline.Automation.All(item => item.IsEnabled));
             Assert.AreEqual(TimeSpan.FromSeconds(5), timeline.Duration);
         }
