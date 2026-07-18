@@ -27,6 +27,8 @@ public sealed class ScreenCaptureFrameLease : IDisposable
 
     public SizeInt32 ContentSize => Frame.ContentSize;
 
+    public CanvasDevice Device => _device;
+
     public IDirect3DSurface Surface => Frame.Surface;
 
     public byte[] CopyBgra8()
@@ -52,12 +54,14 @@ public sealed class WindowsScreenCaptureSession : IAsyncDisposable
 
     private readonly SemaphoreSlim _availableFrames = new(0);
     private readonly CanvasDevice _device;
+    private readonly object _frameCallbackGate = new();
     private readonly CaptureFrameHealthCounter _health = new();
     private readonly GraphicsCaptureItem _item;
     private readonly Func<ScreenCaptureFrameLease, CancellationToken, ValueTask> _processor;
     private readonly ProjectClock _projectClock;
     private readonly ConcurrentQueue<ScreenCaptureFrameLease> _queue = new();
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly object _stopGate = new();
     private Direct3D11CaptureFramePool _framePool;
     private GraphicsCaptureSession _session;
     private Task _consumerTask;
@@ -65,6 +69,10 @@ public sealed class WindowsScreenCaptureSession : IAsyncDisposable
     private int _failureReported;
     private int _queuedFrames;
     private bool _disposed;
+    private bool _started;
+    private int _stopping;
+    private Task? _stopTask;
+    private Exception? _terminalFailure;
 
     private WindowsScreenCaptureSession(
         GraphicsCaptureItem item,
@@ -96,7 +104,9 @@ public sealed class WindowsScreenCaptureSession : IAsyncDisposable
 
     public CaptureFrameHealthSnapshot Health => _health.Snapshot();
 
-    public static WindowsScreenCaptureSession Start(
+    public Exception? TerminalFailure => _terminalFailure;
+
+    public static WindowsScreenCaptureSession Create(
         GraphicsCaptureItem item,
         ProjectClock projectClock,
         Func<ScreenCaptureFrameLease, CancellationToken, ValueTask> processor)
@@ -104,10 +114,40 @@ public sealed class WindowsScreenCaptureSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(projectClock);
         ArgumentNullException.ThrowIfNull(processor);
+        return new WindowsScreenCaptureSession(item, projectClock, processor);
+    }
 
-        WindowsScreenCaptureSession capture = new(item, projectClock, processor);
-        capture._session.StartCapture();
+    public static WindowsScreenCaptureSession Start(
+        GraphicsCaptureItem item,
+        ProjectClock projectClock,
+        Func<ScreenCaptureFrameLease, CancellationToken, ValueTask> processor)
+    {
+        WindowsScreenCaptureSession capture = Create(
+            item,
+            projectClock,
+            processor);
+        capture.Start();
         return capture;
+    }
+
+    public void Start()
+    {
+        if (_started)
+        {
+            throw new InvalidOperationException(
+                "Screen capture has already started.");
+        }
+
+        _started = true;
+        _session.StartCapture();
+    }
+
+    public Task StopAsync()
+    {
+        lock (_stopGate)
+        {
+            return _stopTask ??= StopCoreAsync();
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -118,7 +158,20 @@ public sealed class WindowsScreenCaptureSession : IAsyncDisposable
         }
 
         _disposed = true;
+        await StopAsync();
+        _framePool.Dispose();
+        _device.Dispose();
+        _availableFrames.Dispose();
+        _shutdown.Dispose();
+    }
+
+    private async Task StopCoreAsync()
+    {
+        Interlocked.Exchange(ref _stopping, 1);
         _framePool.FrameArrived -= OnFrameArrived;
+        lock (_frameCallbackGate)
+        {
+        }
         _item.Closed -= OnCaptureItemClosed;
         _session.Dispose();
         _shutdown.Cancel();
@@ -130,26 +183,35 @@ public sealed class WindowsScreenCaptureSession : IAsyncDisposable
         {
             frame.Dispose();
         }
-
-        _framePool.Dispose();
-        _device.Dispose();
-        _availableFrames.Dispose();
-        _shutdown.Dispose();
     }
 
     private void OnFrameArrived(
         Direct3D11CaptureFramePool sender,
         object args)
     {
-        try
+        if (Volatile.Read(ref _stopping) != 0)
         {
-            ProcessFrameArrived(sender);
+            return;
         }
-        catch (Exception exception)
+
+        lock (_frameCallbackGate)
         {
-            if (Interlocked.Exchange(ref _failureReported, 1) == 0)
+            if (Volatile.Read(ref _stopping) != 0)
             {
-                CaptureFailed?.Invoke(exception);
+                return;
+            }
+
+            try
+            {
+                ProcessFrameArrived(sender);
+            }
+            catch (Exception exception)
+            {
+                _terminalFailure = exception;
+                if (Interlocked.Exchange(ref _failureReported, 1) == 0)
+                {
+                    CaptureFailed?.Invoke(exception);
+                }
             }
         }
     }
@@ -223,6 +285,15 @@ public sealed class WindowsScreenCaptureSession : IAsyncDisposable
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {
+        }
+        catch (Exception exception)
+        {
+            _terminalFailure = exception;
+            _shutdown.Cancel();
+            if (Interlocked.Exchange(ref _failureReported, 1) == 0)
+            {
+                CaptureFailed?.Invoke(exception);
+            }
         }
     }
 }

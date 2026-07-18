@@ -52,7 +52,10 @@ public sealed class RecordingPauseController
             TimeSpan effectiveRawTime = _pausedAt is TimeSpan pausedAt
                 ? TimeSpan.FromTicks(Math.Min(rawProjectTime.Ticks, pausedAt.Ticks))
                 : rawProjectTime;
-            return effectiveRawTime - _totalPaused;
+            TimeSpan activeTime = effectiveRawTime - _totalPaused;
+            return activeTime < TimeSpan.Zero
+                ? TimeSpan.Zero
+                : activeTime;
         }
     }
 }

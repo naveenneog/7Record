@@ -21,4 +21,16 @@ public sealed class RecordingPauseControllerTests
             TimeSpan.FromSeconds(4),
             controller.Map(TimeSpan.FromSeconds(9)));
     }
+
+    [TestMethod]
+    public void DelayedPreBoundarySampleClampsToZero()
+    {
+        RecordingPauseController controller = new();
+        controller.Pause(TimeSpan.Zero);
+        controller.Resume(TimeSpan.FromSeconds(5));
+
+        Assert.AreEqual(
+            TimeSpan.Zero,
+            controller.Map(TimeSpan.FromSeconds(4)));
+    }
 }

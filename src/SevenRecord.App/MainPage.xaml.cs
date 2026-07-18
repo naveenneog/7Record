@@ -34,33 +34,30 @@ public sealed partial class MainPage : Page, IDisposable
     private static readonly JsonSerializerOptions RenderPlanSerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
+    private readonly RecorderStateMachine _recorderState = new();
+    private readonly object _stopCaptureGate = new();
     private readonly CaptureReadinessService _readinessService = new(
     [
         new WindowsCaptureReadinessProbe(
             new CaptureReadinessSelection(
                 RequireCamera: false,
-                RequireMicrophone: true,
-                RequireSystemAudio: true)),
+                RequireMicrophone: false,
+                RequireSystemAudio: false)),
         new StorageReadinessProbe(),
         new EncoderReadinessProbe(),
     ]);
-    private WindowsScreenCaptureSession? _captureSession;
-    private string? _activeProjectRoot;
-    private RecordingProjectWriter? _projectWriter;
-    private RecoverableAudioRecordingSession? _audioRecorder;
     private AudioCaptureHealth? _microphoneHealth;
     private AudioCaptureHealth? _systemAudioHealth;
-    private RecoverableCameraRecordingSession? _cameraRecorder;
     private bool _cameraEnabled = true;
-    private CursorMetadataRecorder? _cursorRecorder;
     private GlobalHotKeyService? _globalHotKeys;
-    private ProjectClock? _recordingClock;
-    private RecordingPauseController? _pauseController;
-    private SurfaceScreenSegmentRecorder? _segmentRecorder;
+    private WindowsRecordingSession? _recordingSession;
+    private CancellationTokenSource? _recordingStartupCancellation;
+    private TaskCompletionSource? _recordingStartupCompletion;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
     private TimelineDocument? _currentTimeline;
     private CaptionEditSession? _captionEditSession;
+    private Task? _stopCaptureTask;
     private readonly HashSet<string> _disabledAutomation =
         new(StringComparer.Ordinal);
 
@@ -136,25 +133,25 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void OnPauseRecordingClicked(object sender, RoutedEventArgs e)
     {
-        if (_captureSession is null ||
-            _recordingClock is null ||
-            _pauseController is null)
+        WindowsRecordingSession? session = _recordingSession;
+        if (session is null)
         {
             return;
         }
 
-        TimeSpan rawTime = _recordingClock.Normalize(QpcTimestamp.Now());
-        if (_pauseController.IsPaused)
+        if (_recorderState.Snapshot.State is RecorderState.Paused)
         {
-            _pauseController.Resume(rawTime);
+            session.Resume();
+            _recorderState.Resume();
             PauseRecordingButton.Content = "Pause";
             ReadinessInfoBar.Title = "Recording";
             ReadinessInfoBar.Message = "Recording resumed.";
             UpdateAudioWarningState();
         }
-        else
+        else if (_recorderState.Snapshot.State is RecorderState.Recording)
         {
-            _pauseController.Pause(rawTime);
+            session.Pause();
+            _recorderState.Pause();
             PauseRecordingButton.Content = "Resume";
             ReadinessInfoBar.Title = "Paused";
             ReadinessInfoBar.Message = "Screen and audio samples are paused.";
@@ -572,7 +569,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
         DisposeGlobalHotKeys();
-        await StopCaptureAsync();
+        await StopCaptureAsync(RecordingStopReason.ApplicationExit);
     }
 
     public void Dispose()
@@ -583,10 +580,22 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async void OnStartRecordingClicked(object sender, RoutedEventArgs e)
     {
-        if (_captureSession is not null)
+        RecorderState recorderState = _recorderState.Snapshot.State;
+        if (recorderState is
+            RecorderState.Starting or
+            RecorderState.Recording or
+            RecorderState.Paused)
         {
             await StopCaptureAsync();
             return;
+        }
+        if (recorderState is RecorderState.Stopping)
+        {
+            return;
+        }
+        if (recorderState is RecorderState.Faulted)
+        {
+            _recorderState.Reset();
         }
 
         if (_selectedScreen is null &&
@@ -612,91 +621,56 @@ public sealed partial class MainPage : Page, IDisposable
         ReadinessInfoBar.Title = "Preparing encoder";
         ReadinessInfoBar.Message = "Validating the isolated media worker.";
         ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
+        _recorderState.BeginStart();
+        CancellationTokenSource startupCancellation = new();
+        TaskCompletionSource startupCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _recordingStartupCancellation = startupCancellation;
+        _recordingStartupCompletion = startupCompletion;
 
-        SurfaceScreenSegmentRecorder? pendingSegmentRecorder = null;
-        RecoverableAudioRecordingSession? pendingAudioRecorder = null;
-        RecoverableCameraRecordingSession? pendingCameraRecorder = null;
-        CursorMetadataRecorder? pendingCursorRecorder = null;
-        RecordingProjectWriter? pendingProjectWriter = null;
-        string? cameraStartWarning = null;
         try
         {
-            string projectRoot = CreateProjectRoot();
-            pendingProjectWriter =
-                await RecordingProjectWriter.OpenAsync(projectRoot);
-            ProjectClock projectClock = ProjectClock.StartNew();
-            RecordingPauseController pauseController = new();
-            try
+            WindowsRecordingStartResult startResult =
+                await WindowsRecordingSession.StartAsync(
+                    new WindowsRecordingRequest(
+                        CreateProjectRoot(),
+                        _selectedScreen,
+                        _cameraEnabled),
+                    startupCancellation.Token);
+            WindowsRecordingSession session = startResult.Session;
+            if (_recorderState.Snapshot.State is RecorderState.Stopping)
             {
-                pendingCursorRecorder = CursorMetadataRecorder.Start(
-                    projectClock,
-                    pauseController);
+                await session.StopAsync(RecordingStopReason.User);
+                _recorderState.CompleteStop();
+                StartRecordingButton.Content = "Record";
+                StartRecordingButton.IsEnabled = true;
+                PauseRecordingButton.IsEnabled = false;
+                await RefreshReadinessAsync();
+                return;
             }
-            catch (InvalidOperationException exception)
-            {
-                System.Diagnostics.Debug.WriteLine(exception);
-            }
-            pendingSegmentRecorder = await SurfaceScreenSegmentRecorder.CreateAsync(
-                projectRoot,
-                _selectedScreen.Width,
-                _selectedScreen.Height,
-                projectClock,
-                pauseController,
-                pendingProjectWriter);
-            pendingAudioRecorder = RecoverableAudioRecordingSession.Start(
-                projectRoot,
-                projectClock,
-                pauseController,
-                pendingProjectWriter);
-            pendingAudioRecorder.HealthChanged += OnAudioHealthChanged;
-            if (_cameraEnabled)
-            {
-                try
-                {
-                    pendingCameraRecorder =
-                        await RecoverableCameraRecordingSession.CreateAsync(
-                            projectRoot,
-                            projectClock,
-                            pauseController,
-                            pendingProjectWriter);
-                    CameraStatusText.Text =
-                        $"{pendingCameraRecorder.DeviceName} is recording with GPU surface encoding.";
-                }
-                catch (Exception exception) when (
-                    exception is COMException or
-                        InvalidOperationException or
-                        UnauthorizedAccessException)
-                {
-                    cameraStartWarning = exception.Message;
-                    CameraStatusText.Text =
-                        $"Camera could not start; screen recording continues. {exception.Message}";
-                    System.Diagnostics.Debug.WriteLine(exception);
-                }
-            }
-            WindowsScreenCaptureSession capture = WindowsScreenCaptureSession.Start(
-                _selectedScreen.Item,
-                projectClock,
-                pendingSegmentRecorder.ProcessFrameAsync);
-            capture.HealthChanged += OnCaptureHealthChanged;
-            capture.CaptureClosed += OnCaptureClosed;
-            capture.CaptureFailed += OnCaptureFailed;
-            _segmentRecorder = pendingSegmentRecorder;
-            _audioRecorder = pendingAudioRecorder;
-            _cameraRecorder = pendingCameraRecorder;
-            _cursorRecorder = pendingCursorRecorder;
+
+            session.ScreenHealthChanged += OnCaptureHealthChanged;
+            session.AudioHealthChanged += OnAudioHealthChanged;
+            session.CaptureClosed += OnCaptureClosed;
+            session.CaptureFailed += OnCaptureFailed;
+            _recordingSession = session;
             _microphoneHealth = null;
             _systemAudioHealth = null;
-            _activeProjectRoot = projectRoot;
-            _projectWriter = pendingProjectWriter;
-            _recordingClock = projectClock;
-            _pauseController = pauseController;
-            pendingSegmentRecorder = null;
-            pendingAudioRecorder = null;
-            pendingCameraRecorder = null;
-            pendingCursorRecorder = null;
-            pendingProjectWriter = null;
-            _captureSession = capture;
+            _recorderState.MarkRecording();
 
+            if (session.CaptureFailure is Exception captureFailure)
+            {
+                await StopCaptureAfterFailureAsync(captureFailure);
+                return;
+            }
+            if (session.IsCaptureClosed)
+            {
+                await StopCaptureAsync(RecordingStopReason.CaptureClosed);
+                return;
+            }
+
+            IReadOnlyList<WindowsRecordingIssue> sourceWarnings =
+                startResult.Issues;
             StartRecordingButton.Content = "Stop";
             StartRecordingButton.IsEnabled = true;
             PauseRecordingButton.Content = "Pause";
@@ -704,42 +678,64 @@ public sealed partial class MainPage : Page, IDisposable
             ChooseSourceButton.IsEnabled = false;
             CameraOverlayToggle.IsEnabled = false;
             RefreshReadinessButton.IsEnabled = false;
-            ReadinessInfoBar.Title = cameraStartWarning is null
+            ReadinessInfoBar.Title = sourceWarnings.Count == 0
                 ? "Recording"
-                : "Recording without camera";
-            ReadinessInfoBar.Message = cameraStartWarning is null
+                : "Recording with unavailable sources";
+            ReadinessInfoBar.Message = sourceWarnings.Count == 0
                 ? "Capturing accelerated Direct3D surfaces with camera, microphone, and system audio."
-                : $"Screen and audio are recording. Camera unavailable: {cameraStartWarning}";
-            ReadinessInfoBar.Severity = cameraStartWarning is null
+                : $"Screen capture is active. {string.Join(" ", sourceWarnings.Select(issue => issue.Message))}";
+            ReadinessInfoBar.Severity = sourceWarnings.Count == 0
                 ? InfoBarSeverity.Informational
                 : InfoBarSeverity.Warning;
             FrameStatusText.Text = "Waiting for the first frame...";
-            AudioStatusText.Text =
-                "Mic: waiting for samples." + Environment.NewLine +
-                "System: waiting for samples.";
+            if (session.HasAudio)
+            {
+                AudioStatusText.Text =
+                    "Mic: waiting for samples." + Environment.NewLine +
+                    "System: waiting for samples.";
+            }
+            else
+            {
+                AudioStatusText.Text =
+                    IssueMessage(sourceWarnings, "audio", "Audio is unavailable.");
+            }
+
+            if (session.CameraDeviceName is not null)
+            {
+                CameraStatusText.Text =
+                    $"{session.CameraDeviceName} is recording with GPU surface encoding.";
+            }
+            else if (_cameraEnabled)
+            {
+                CameraStatusText.Text =
+                    IssueMessage(sourceWarnings, "camera", "Camera is unavailable.");
+            }
+        }
+        catch (OperationCanceledException)
+            when (startupCancellation.IsCancellationRequested)
+        {
+            if (_recorderState.Snapshot.State is RecorderState.Stopping)
+            {
+                _recorderState.CompleteStop();
+            }
+
+            StartRecordingButton.Content = "Record";
+            StartRecordingButton.IsEnabled = true;
+            PauseRecordingButton.IsEnabled = false;
+            ReadinessInfoBar.Title = "Recording canceled";
+            ReadinessInfoBar.Message =
+                "Recording was canceled before capture started.";
+            ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
+            await RefreshReadinessAsync();
         }
         catch (Exception exception)
         {
-            if (pendingSegmentRecorder is not null)
-            {
-                await pendingSegmentRecorder.DisposeAsync();
-            }
-            if (pendingAudioRecorder is not null)
-            {
-                pendingAudioRecorder.HealthChanged -= OnAudioHealthChanged;
-                await pendingAudioRecorder.DisposeAsync();
-            }
-            if (pendingCameraRecorder is not null)
-            {
-                await pendingCameraRecorder.DisposeAsync();
-            }
-            if (pendingCursorRecorder is not null)
-            {
-                await pendingCursorRecorder.DisposeAsync();
-            }
-            pendingProjectWriter?.Dispose();
-
             System.Diagnostics.Debug.WriteLine(exception);
+            if (_recorderState.Snapshot.State is
+                RecorderState.Starting or RecorderState.Stopping)
+            {
+                _recorderState.MarkFaulted(exception.Message);
+            }
             StartRecordingButton.IsEnabled = true;
             FrameStatusText.Text =
                 $"Recording start failed: {exception.GetType().Name} " +
@@ -747,6 +743,24 @@ public sealed partial class MainPage : Page, IDisposable
             ReadinessInfoBar.Title = "Recording could not start";
             ReadinessInfoBar.Message = exception.Message;
             ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+        }
+        finally
+        {
+            if (ReferenceEquals(
+                    _recordingStartupCancellation,
+                    startupCancellation))
+            {
+                _recordingStartupCancellation = null;
+            }
+            if (ReferenceEquals(
+                    _recordingStartupCompletion,
+                    startupCompletion))
+            {
+                _recordingStartupCompletion = null;
+            }
+
+            startupCancellation.Dispose();
+            startupCompletion.TrySetResult();
         }
     }
 
@@ -872,7 +886,7 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void UpdateReadinessSummary()
     {
-        if (_captureSession is not null)
+        if (_recordingSession is not null)
         {
             return;
         }
@@ -916,7 +930,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         DispatcherQueue.TryEnqueue(() =>
         {
-            TimeSpan displayedTime = _pauseController?.Map(health.LastProjectTime) ??
+            TimeSpan displayedTime = _recordingSession?.MapActiveTime(health.LastProjectTime) ??
                 health.LastProjectTime;
             FrameStatusText.Text =
                 $"{health.FramesReceived:N0} frames, " +
@@ -930,85 +944,129 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void OnCaptureFailed(Exception exception) =>
         DispatcherQueue.TryEnqueue(() =>
-        {
-            FrameStatusText.Text = $"Capture failed: {exception.Message}";
-            ReadinessInfoBar.Title = "Screen capture failed";
-            ReadinessInfoBar.Message = exception.Message;
-            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
-        });
+            _ = StopCaptureAfterFailureAsync(exception));
+
+    private async Task StopCaptureAfterFailureAsync(Exception exception)
+    {
+        FrameStatusText.Text = $"Capture failed: {exception.Message}";
+        ReadinessInfoBar.Title = "Screen capture failed";
+        ReadinessInfoBar.Message = exception.Message;
+        ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+        await StopCaptureAsync(RecordingStopReason.CaptureFailed);
+    }
 
     private async void StopCaptureFromDispatcher()
     {
-        await StopCaptureAsync();
+        await StopCaptureAsync(RecordingStopReason.CaptureClosed);
     }
 
-    private async Task StopCaptureAsync()
+    private Task StopCaptureAsync(
+        RecordingStopReason reason = RecordingStopReason.User)
     {
-        WindowsScreenCaptureSession? capture = _captureSession;
-        if (capture is null)
+        lock (_stopCaptureGate)
+        {
+            if (_stopCaptureTask is { IsCompleted: false })
+            {
+                return _stopCaptureTask;
+            }
+
+            if (_recorderState.Snapshot.State is RecorderState.Starting)
+            {
+                if (_recorderState.TryBeginStop(out _))
+                {
+                    _recordingStartupCancellation?.Cancel();
+                }
+
+                return _recordingStartupCompletion?.Task ??
+                    Task.CompletedTask;
+            }
+
+            if (_recordingSession is null ||
+                !_recorderState.TryBeginStop(out _))
+            {
+                return Task.CompletedTask;
+            }
+
+            Task stopTask = StopCaptureCoreAsync(reason);
+            _stopCaptureTask = stopTask;
+            return AwaitStopAndClearAsync(stopTask);
+        }
+    }
+
+    private async Task AwaitStopAndClearAsync(Task stopTask)
+    {
+        try
+        {
+            await stopTask;
+        }
+        finally
+        {
+            lock (_stopCaptureGate)
+            {
+                if (ReferenceEquals(_stopCaptureTask, stopTask))
+                {
+                    _stopCaptureTask = null;
+                }
+            }
+        }
+    }
+
+    private async Task StopCaptureCoreAsync(RecordingStopReason reason)
+    {
+        WindowsRecordingSession? session = _recordingSession;
+        if (session is null)
         {
             return;
         }
 
-        _captureSession = null;
-        capture.HealthChanged -= OnCaptureHealthChanged;
-        capture.CaptureClosed -= OnCaptureClosed;
-        capture.CaptureFailed -= OnCaptureFailed;
-        await capture.DisposeAsync();
-
-        CaptureFrameHealthSnapshot health = capture.Health;
-        SurfaceScreenSegmentRecorder? segmentRecorder = _segmentRecorder;
-        RecoverableAudioRecordingSession? audioRecorder = _audioRecorder;
-        RecoverableCameraRecordingSession? cameraRecorder = _cameraRecorder;
-        CursorMetadataRecorder? cursorRecorder = _cursorRecorder;
-        RecordingProjectWriter? projectWriter = _projectWriter;
-        string? projectRoot = _activeProjectRoot;
-        _segmentRecorder = null;
-        _audioRecorder = null;
+        _recordingSession = null;
+        session.ScreenHealthChanged -= OnCaptureHealthChanged;
+        session.AudioHealthChanged -= OnAudioHealthChanged;
+        session.CaptureClosed -= OnCaptureClosed;
+        session.CaptureFailed -= OnCaptureFailed;
         _microphoneHealth = null;
         _systemAudioHealth = null;
-        _cameraRecorder = null;
-        _cursorRecorder = null;
-        _projectWriter = null;
-        _activeProjectRoot = null;
-        _recordingClock = null;
-        _pauseController = null;
-        if (audioRecorder is not null)
-        {
-            audioRecorder.HealthChanged -= OnAudioHealthChanged;
-        }
 
+        bool finalizationFailed = false;
         try
         {
-            if (audioRecorder is not null)
+            WindowsRecordingFinalizationResult result =
+                await session.StopAsync(reason);
+            WindowsRecordingIssue[] errors = result.Issues
+                .Where(issue =>
+                    issue.Severity is RecordingIssueSeverity.Error)
+                .ToArray();
+            finalizationFailed = errors.Length > 0 || result.Screen is null;
+
+            List<string> processingWarnings = [];
+            if (result.Cursor is not null)
             {
-                await audioRecorder.StopAsync();
-            }
-            if (cameraRecorder is not null)
-            {
-                await cameraRecorder.StopAsync();
-            }
-            if (cursorRecorder is not null && projectRoot is not null)
-            {
-                CursorMetadataDocument cursor =
-                    await cursorRecorder.CompleteAsync(projectRoot);
-                IReadOnlyList<CursorZoomEvent> zooms =
-                    CursorZoomPlanner.CreatePlan(cursor);
-                string zoomPath = Path.Combine(projectRoot, "cursor-zoom-plan.json");
-                string temporaryZoomPath = zoomPath + ".tmp";
-                await File.WriteAllTextAsync(
-                    temporaryZoomPath,
-                    JsonSerializer.Serialize(
-                        zooms,
-                        AudioRepairSerializerOptions));
-                File.Move(temporaryZoomPath, zoomPath, overwrite: true);
+                try
+                {
+                    IReadOnlyList<CursorZoomEvent> zooms =
+                        CursorZoomPlanner.CreatePlan(result.Cursor);
+                    string zoomPath = Path.Combine(
+                        result.ProjectRoot,
+                        "cursor-zoom-plan.json");
+                    string temporaryZoomPath = zoomPath + ".tmp";
+                    await File.WriteAllTextAsync(
+                        temporaryZoomPath,
+                        JsonSerializer.Serialize(
+                            zooms,
+                            AudioRepairSerializerOptions));
+                    File.Move(temporaryZoomPath, zoomPath, overwrite: true);
+                }
+                catch (Exception exception)
+                {
+                    processingWarnings.Add(
+                        $"Cursor analysis failed: {exception.Message}");
+                }
             }
 
-            if (segmentRecorder is not null)
+            int loadingIntervals = 0;
+            if (result.Screen is not null)
             {
-                RecordingSegmentEntry segment = await segmentRecorder.CompleteAsync();
-                int loadingIntervals = 0;
-                if (projectRoot is not null)
+                try
                 {
                     string workerPath = Path.Combine(
                         AppContext.BaseDirectory,
@@ -1017,70 +1075,107 @@ public sealed partial class MainPage : Page, IDisposable
                     LoadingDetectionWorkerResult loading =
                         await MediaWorkerLoadingClient.DetectAsync(
                             workerPath,
-                            Path.Combine(projectRoot, segment.RelativePath),
-                            Path.Combine(projectRoot, "loading-speed-plan.json"));
+                            Path.Combine(
+                                result.ProjectRoot,
+                                result.Screen.RelativePath),
+                            Path.Combine(
+                                result.ProjectRoot,
+                                "loading-speed-plan.json"));
                     loadingIntervals = loading.Succeeded ? loading.Intervals : 0;
                 }
-                AudioRecordingResult? audio = audioRecorder is null
-                    ? null
-                    : await audioRecorder.PublishAsync();
-                CameraRecordingResult? camera = cameraRecorder is null
-                    ? null
-                    : await cameraRecorder.PublishAsync();
-                int repairEvents = 0;
-                if (audio is not null && projectRoot is not null)
+                catch (Exception exception)
+                {
+                    processingWarnings.Add(
+                        $"Loading analysis failed: {exception.Message}");
+                }
+            }
+
+            int repairEvents = 0;
+            if (result.Audio is not null)
+            {
+                try
                 {
                     repairEvents = await SaveAudioRepairPlanAsync(
-                        projectRoot,
-                        audio.Timing);
+                        result.ProjectRoot,
+                        result.Audio.Timing);
                 }
+                catch (Exception exception)
+                {
+                    processingWarnings.Add(
+                        $"Audio analysis failed: {exception.Message}");
+                }
+            }
+
+            if (result.Screen is not null)
+            {
                 FrameStatusText.Text =
-                    $"Saved {health.FramesReceived:N0} captured frames to {segment.RelativePath}; " +
-                    $"{health.FramesDropped:N0} dropped" +
-                    (audio is null
+                    $"Saved {result.ScreenHealth.FramesReceived:N0} captured frames to " +
+                    $"{result.Screen.RelativePath}; " +
+                    $"{result.ScreenHealth.FramesDropped:N0} dropped" +
+                    (result.Audio is null
                         ? "."
-                        : $"; audio saved to {audio.Microphone.RelativePath} and " +
-                          $"{audio.SystemAudio.RelativePath}; {repairEvents} timing repairs suggested") +
-                    (camera is null
+                        : $"; audio saved to {result.Audio.Microphone.RelativePath} and " +
+                          $"{result.Audio.SystemAudio.RelativePath}; {repairEvents} timing repairs suggested") +
+                    (result.Camera is null
                         ? "."
-                        : $"; camera saved to {camera.Segment.RelativePath} with {camera.Layout.Mode} layout.") +
+                        : $"; camera saved to {result.Camera.Segment.RelativePath} with " +
+                          $"{result.Camera.Layout.Mode} layout.") +
                     $" {loadingIntervals} waiting interval(s) suggested.";
             }
             else
             {
                 FrameStatusText.Text =
-                    $"Stopped after {health.FramesReceived:N0} frames; " +
-                    $"{health.FramesDropped:N0} dropped.";
+                    $"Stopped after {result.ScreenHealth.FramesReceived:N0} frames; " +
+                    "the screen segment could not be published.";
+            }
+
+            WindowsRecordingIssue[] warnings = result.Issues
+                .Where(issue =>
+                    issue.Severity is RecordingIssueSeverity.Warning)
+                .ToArray();
+            if (!finalizationFailed &&
+                (warnings.Length > 0 || processingWarnings.Count > 0))
+            {
+                ReadinessInfoBar.Title = "Recording saved with warnings";
+                ReadinessInfoBar.Message = string.Join(
+                    " ",
+                    warnings.Select(issue => issue.Message)
+                        .Concat(processingWarnings));
+                ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+            }
+            else if (finalizationFailed)
+            {
+                string message = errors.Length > 0
+                    ? string.Join(" ", errors.Select(issue => issue.Message))
+                    : "The screen segment could not be published.";
+                if (_recorderState.Snapshot.State is RecorderState.Stopping)
+                {
+                    _recorderState.MarkFaulted(message);
+                }
+
+                ReadinessInfoBar.Title = "Recording could not be finalized";
+                ReadinessInfoBar.Message = message;
+                ReadinessInfoBar.Severity = InfoBarSeverity.Error;
             }
         }
         catch (Exception exception)
         {
+            finalizationFailed = true;
             System.Diagnostics.Debug.WriteLine(exception);
+            if (_recorderState.Snapshot.State is RecorderState.Stopping)
+            {
+                _recorderState.MarkFaulted(exception.Message);
+            }
             FrameStatusText.Text = $"Segment finalization failed: {exception.Message}";
             ReadinessInfoBar.Title = "Recording could not be finalized";
             ReadinessInfoBar.Message = exception.Message;
             ReadinessInfoBar.Severity = InfoBarSeverity.Error;
         }
-        finally
-        {
-            if (segmentRecorder is not null)
-            {
-                await segmentRecorder.DisposeAsync();
-            }
 
-            if (audioRecorder is not null)
-            {
-                await audioRecorder.DisposeAsync();
-            }
-            if (cameraRecorder is not null)
-            {
-                await cameraRecorder.DisposeAsync();
-            }
-            if (cursorRecorder is not null)
-            {
-                await cursorRecorder.DisposeAsync();
-            }
-            projectWriter?.Dispose();
+        if (!finalizationFailed &&
+            _recorderState.Snapshot.State is RecorderState.Stopping)
+        {
+            _recorderState.CompleteStop();
         }
 
         StartRecordingButton.Content = "Record";
@@ -1089,7 +1184,8 @@ public sealed partial class MainPage : Page, IDisposable
         ChooseSourceButton.IsEnabled = true;
         CameraOverlayToggle.IsEnabled = true;
         RefreshReadinessButton.IsEnabled = true;
-        if (ReadinessInfoBar.Severity is not InfoBarSeverity.Error)
+        if (ReadinessInfoBar.Severity is
+            InfoBarSeverity.Informational or InfoBarSeverity.Success)
         {
             await RefreshReadinessAsync();
         }
@@ -1102,6 +1198,20 @@ public sealed partial class MainPage : Page, IDisposable
         string projectName =
             $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
         return Path.Combine(videos, "7Record", "Projects", projectName);
+    }
+
+    private static string IssueMessage(
+        IEnumerable<WindowsRecordingIssue> issues,
+        string component,
+        string fallback)
+    {
+        WindowsRecordingIssue? issue = issues.FirstOrDefault(candidate =>
+            candidate.Component.StartsWith(
+                component,
+                StringComparison.OrdinalIgnoreCase));
+        return issue is null
+            ? fallback
+            : $"{fallback} {issue.Message}";
     }
 
     private void OnAudioHealthChanged(AudioCaptureHealth health)
@@ -1150,8 +1260,8 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void UpdateAudioWarningState()
     {
-        if (_captureSession is null ||
-            _pauseController?.IsPaused is true ||
+        if (_recordingSession is null ||
+            _recordingSession.IsPaused ||
             ReadinessInfoBar.Severity is InfoBarSeverity.Error)
         {
             return;

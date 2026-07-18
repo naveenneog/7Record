@@ -61,6 +61,13 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added `SevenRecord.Recording.Windows` and moved the Direct3D screen encoder/publisher out of the WinUI project without changing recording behavior.
 - Added one session-owned `RecordingProjectWriter` for serialized segment sequence allocation and journal publication across screen, microphone, system audio, and camera.
 - Made segment move→journal append a non-cancellable commit boundary so caller cancellation cannot orphan a successfully moved segment.
+- Added `WindowsRecordingSession` as the active resource aggregate; `MainPage` now holds one session instead of concrete screen/audio/camera/cursor recorders.
+- Added single-flight stop/finalization, stop-during-start cancellation, explicit stop reasons, and processor-fault teardown.
+- Made microphone/system audio optional at runtime so missing endpoints no longer prevent screen recording.
+- Added GPU frame pacing that holds the latest change-driven Windows capture surface at 60 fps and pads odd application-window dimensions to codec-safe even dimensions without CPU readback.
+- Updated the capture performance harness to launch the verified executable directly and use reliable coordinate-click fallbacks for WinUI controls.
+- Added a shared gated start/stop boundary and frozen active duration; a 5.87-second journal aligned with screen/microphone/system media at 5.78/5.80/5.82 seconds.
+- Preserved terminal screen-processing failures in finalization results and kept the Direct3D capture device alive until the GPU pacer and encoder drain.
 
 ### Research
 

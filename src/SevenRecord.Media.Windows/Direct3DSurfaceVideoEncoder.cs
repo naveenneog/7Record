@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using System.Runtime.InteropServices;
+using SevenRecord.Media;
 using Windows.Foundation;
 using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Media.Core;
@@ -73,10 +74,12 @@ public sealed class Direct3DSurfaceVideoEncoder : IAsyncDisposable
             BufferTime = TimeSpan.Zero,
         };
 
+        uint outputWidth = (uint)VideoEncodingDimensions.NormalizeEven(width);
+        uint outputHeight = (uint)VideoEncodingDimensions.NormalizeEven(height);
         MediaEncodingProfile profile = MediaEncodingProfile.CreateMp4(VideoEncodingQuality.HD1080p);
         profile.Audio = null;
-        profile.Video.Width = (uint)width;
-        profile.Video.Height = (uint)height;
+        profile.Video.Width = outputWidth;
+        profile.Video.Height = outputHeight;
         profile.Video.Bitrate = bitrate;
         profile.Video.FrameRate.Numerator = (uint)framesPerSecond;
         profile.Video.FrameRate.Denominator = 1;

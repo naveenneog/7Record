@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using NAudio;
 using NAudio.Wave;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Domain.Audio;
@@ -13,6 +15,13 @@ public sealed record AudioRecordingResult(
     string TimingManifestPath,
     AudioCaptureHealth? MicrophoneHealth,
     AudioCaptureHealth? SystemAudioHealth);
+
+public sealed record AudioRecordingStartResult(
+    RecoverableAudioRecordingSession? Session,
+    string? Error)
+{
+    public bool Succeeded => Session is not null;
+}
 
 public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
 {
@@ -103,6 +112,32 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
             projectWriter,
             ownsProjectWriter: false);
 
+    public static AudioRecordingStartResult TryStart(
+        string projectRoot,
+        ProjectClock projectClock,
+        RecordingPauseController pauseController,
+        RecordingProjectWriter projectWriter)
+    {
+        try
+        {
+            return new AudioRecordingStartResult(
+                Start(
+                    projectRoot,
+                    projectClock,
+                    pauseController,
+                    projectWriter),
+                null);
+        }
+        catch (Exception exception) when (
+            exception is COMException or
+                InvalidOperationException or
+                MmException or
+                UnauthorizedAccessException)
+        {
+            return new AudioRecordingStartResult(null, exception.Message);
+        }
+    }
+
     private static RecoverableAudioRecordingSession Start(
         string projectRoot,
         ProjectClock projectClock,
@@ -181,6 +216,15 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
     public async Task<AudioRecordingResult> PublishAsync(
         CancellationToken cancellationToken = default)
     {
+        TimeSpan duration = _pauseController.Map(
+            _projectClock.Normalize(QpcTimestamp.Now()));
+        return await PublishAsync(duration, cancellationToken);
+    }
+
+    public async Task<AudioRecordingResult> PublishAsync(
+        TimeSpan duration,
+        CancellationToken cancellationToken = default)
+    {
         if (!_stopped)
         {
             throw new InvalidOperationException("Audio capture must stop before publication.");
@@ -192,8 +236,6 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         }
 
         _completed = true;
-        TimeSpan duration = _pauseController.Map(
-            _projectClock.Normalize(QpcTimestamp.Now()));
         RecordingSegmentEntry microphone = await _projectWriter.PublishAsync(
             _microphoneTemporaryPath,
             sourceId: "microphone",

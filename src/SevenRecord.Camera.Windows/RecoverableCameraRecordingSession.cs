@@ -46,6 +46,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
     private long _frames;
     private long _droppedFrames;
     private bool _completed;
+    private bool _disposed;
     private TimeSpan _duration;
     private bool _stopped;
 
@@ -236,6 +237,20 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                     TimeSpan.FromSeconds(5),
                     cancellationToken);
             }
+            catch (OperationCanceledException cancellationException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await session.DisposeAsync();
+                }
+                catch (Exception cleanupException)
+                {
+                    cancellationException.Data["CameraCleanupFailure"] =
+                        cleanupException.ToString();
+                }
+                throw;
+            }
             catch
             {
                 await session.DisposeAsync();
@@ -264,7 +279,15 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         return await PublishAsync(cancellationToken);
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken = default)
+    public Task StopAsync(CancellationToken cancellationToken = default) =>
+        StopAsync(
+            _pauseController.Map(
+                _projectClock.Normalize(QpcTimestamp.Now())),
+            cancellationToken);
+
+    public async Task StopAsync(
+        TimeSpan duration,
+        CancellationToken cancellationToken = default)
     {
         if (_stopped)
         {
@@ -284,8 +307,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         }
 
         await _encoder.CompleteAsync();
-        _duration = _pauseController.Map(
-            _projectClock.Normalize(QpcTimestamp.Now()));
+        _duration = duration;
     }
 
     public async Task<CameraRecordingResult> PublishAsync(
@@ -330,33 +352,111 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _reader.FrameArrived -= OnFrameArrived;
-        if (!_stopped)
-        {
-            await _reader.StopAsync();
-            _shutdown.Cancel();
-        }
-
-        await _encoder.DisposeAsync();
-        _renderTarget.Dispose();
-        _device.Dispose();
-        _reader.Dispose();
-        _capture.Dispose();
-        if (_ownsProjectWriter)
-        {
-            _projectWriter.Dispose();
-        }
-        _processingGate.Dispose();
-        _shutdown.Dispose();
-    }
-
-    private async void OnFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
-    {
-        if (_pauseController.IsPaused)
+        if (_disposed)
         {
             return;
         }
 
+        _disposed = true;
+        Exception? failure = null;
+        _reader.FrameArrived -= OnFrameArrived;
+        if (!_stopped)
+        {
+            try
+            {
+                await _reader.StopAsync();
+            }
+            catch (Exception exception)
+            {
+                failure = Combine(failure, exception);
+            }
+        }
+
+        _shutdown.Cancel();
+        try
+        {
+            await _encoder.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+
+        try
+        {
+            _renderTarget.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+        try
+        {
+            _device.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+        try
+        {
+            _reader.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+        try
+        {
+            _capture.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+        if (_ownsProjectWriter)
+        {
+            try
+            {
+                _projectWriter.Dispose();
+            }
+            catch (Exception exception)
+            {
+                failure = Combine(failure, exception);
+            }
+        }
+        try
+        {
+            _processingGate.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+        try
+        {
+            _shutdown.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+
+        if (failure is not null)
+        {
+            throw failure;
+        }
+    }
+
+    private static Exception Combine(
+        Exception? existing,
+        Exception next) =>
+        existing is null
+            ? next
+            : new AggregateException(existing, next);
+
+    private async void OnFrameArrived(MediaFrameReader sender, MediaFrameArrivedEventArgs args)
+    {
         if (!_processingGate.Wait(0))
         {
             Interlocked.Increment(ref _droppedFrames);
@@ -367,6 +467,11 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         {
             using MediaFrameReference? frame = sender.TryAcquireLatestFrame();
             if (frame?.VideoMediaFrame?.Direct3DSurface is not { } surface)
+            {
+                return;
+            }
+            _firstFrame.TrySetResult();
+            if (_pauseController.IsPaused)
             {
                 return;
             }
@@ -386,7 +491,6 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 projectTime,
                 _shutdown.Token);
             Interlocked.Increment(ref _frames);
-            _firstFrame.TrySetResult();
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {

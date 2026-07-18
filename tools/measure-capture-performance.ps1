@@ -39,11 +39,18 @@ public static class SevenRecordNativeMouse
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(
+        uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
 }
 "@
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$appProject = Join-Path $repositoryRoot "src\SevenRecord.App\SevenRecord.App.csproj"
+$appOutputRoot = Join-Path $repositoryRoot "src\SevenRecord.App\bin\$Configuration"
 $targetTitle = $SourceWindowTitle
 $runStartedAt = Get-Date
 $sourceProcess = $null
@@ -98,6 +105,25 @@ function Invoke-Element {
     catch {
         throw "Could not invoke '$($Element.Current.Name)' ($($Element.Current.AutomationId)): $($_.Exception.Message)"
     }
+}
+
+function Click-Element {
+    param([System.Windows.Automation.AutomationElement]$Element)
+
+    $process = Get-Process -Id $Element.Current.ProcessId
+    [SevenRecordNativeMouse]::ShowWindow(
+        [IntPtr]$process.MainWindowHandle,
+        9) | Out-Null
+    [SevenRecordNativeMouse]::SetForegroundWindow(
+        [IntPtr]$process.MainWindowHandle) | Out-Null
+    Start-Sleep -Milliseconds 300
+    $bounds = $Element.Current.BoundingRectangle
+    $x = [int]($bounds.X + $bounds.Width / 2)
+    $y = [int]($bounds.Y + $bounds.Height / 2)
+    [SevenRecordNativeMouse]::SetCursorPos($x, $y) | Out-Null
+    Start-Sleep -Milliseconds 100
+    [SevenRecordNativeMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+    [SevenRecordNativeMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 }
 
 function Get-CapturePickerWindows {
@@ -169,13 +195,20 @@ try {
         [ref]$sourceRect) | Out-Null
 
     if (-not $AttachExisting) {
+        $appExecutable = Get-ChildItem `
+            -Path $appOutputRoot `
+            -Filter "SevenRecord.App.exe" `
+            -File `
+            -Recurse |
+            Where-Object FullName -NotMatch "\\(AppX|publish)\\" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if (-not $appExecutable) {
+            throw "SevenRecord.App.exe was not found under '$appOutputRoot'. Build the solution first."
+        }
+
         $appLauncher = Start-Process `
-            -FilePath "dotnet" `
-            -ArgumentList @(
-                "run",
-                "--project", $appProject,
-                "--configuration", $Configuration,
-                "--no-build") `
+            -FilePath $appExecutable.FullName `
             -WorkingDirectory $repositoryRoot `
             -PassThru
     }
@@ -210,7 +243,13 @@ try {
         Wait-Until -TimeoutSeconds 15 -FailureMessage "Choose source button did not become available." -Condition {
             $chooseSource.Current.IsEnabled
         } | Out-Null
-        Invoke-Element $chooseSource
+        for ($attempt = 0; $attempt -lt 3; $attempt++) {
+            Click-Element $chooseSource
+            Start-Sleep -Seconds 2
+            if (@(Get-CapturePickerWindows).Count -gt 0) {
+                break
+            }
+        }
 
         $picker = Wait-Until -TimeoutSeconds 30 -FailureMessage "Windows capture picker did not open." -Condition {
             (Get-CapturePickerWindows | Select-Object -First 1)
@@ -280,7 +319,7 @@ try {
             0x0044) | Out-Null
         Start-Sleep -Seconds 1
     }
-    Invoke-Element $startRecording
+    Click-Element $startRecording
     $frameStatus = Find-DescendantByAutomationId -Root $app -AutomationId "FrameStatusText"
 
     Wait-Until -TimeoutSeconds 45 -FailureMessage "Capture did not deliver a first frame." -Condition {
@@ -301,7 +340,12 @@ try {
         [System.Windows.Automation.TreeScope]::Descendants,
         $scrollableCondition)
     if ($scrollable) {
-        $scrollable.SetFocus()
+        try {
+            $scrollable.SetFocus()
+        }
+        catch {
+            $scrollable = $null
+        }
     }
 
     $animationDeadline = (Get-Date).AddSeconds($DurationSeconds)
@@ -319,7 +363,7 @@ try {
     $statusDuringCapture = $frameStatus.Current.Name
     $workingSetBytes = (Get-CaptureProcesses | Measure-Object WorkingSet64 -Sum).Sum
 
-    Invoke-Element $startRecording
+    Click-Element $startRecording
     Wait-Until -TimeoutSeconds 60 -FailureMessage "Segment did not finalize." -Condition {
         $frameStatus.Current.Name -match "^(Saved|Segment finalization failed)"
     } | Out-Null

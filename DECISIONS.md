@@ -293,8 +293,17 @@ The npm package must not reimplement capture in Node.js or bundle an unsigned ex
 **Status:** Accepted
 **Date:** 2026-07-18
 
-`SevenRecord.Recording` owns a small synchronous, revisioned lifecycle state machine. A new Windows recording layer will own async command serialization and one private active-session aggregate for the project clock, pause mapping, screen, audio, camera, cursor, publication, and teardown.
+`SevenRecord.Recording` owns a small synchronous, revisioned lifecycle state machine. `SevenRecord.Recording.Windows` owns one private active-session aggregate for the project clock, pause mapping, screen, audio, camera, cursor, publication, and teardown.
 
-All stop causes converge on one stop task. Screen/audio are mandatory; camera/cursor failures are structured warnings and cannot prevent mandatory source finalization. One session-owned project writer will become the sole journal and sequence authority.
+All stop causes converge on one stop task. Screen is mandatory; unavailable or failed audio, camera, and cursor sources are explicit structured warnings and cannot prevent screen finalization. One session-owned project writer is the sole journal and sequence authority.
 
 Raw source publication and resource disposal define recording stop. Loading detection, cursor zoom planning, audio repair planning, and other analysis run as a separate idempotent project pipeline so another recording can start without waiting for post-processing.
+
+## D-034: GPU frame pacing for window capture
+
+**Status:** Accepted
+**Date:** 2026-07-18
+
+Windows Graphics Capture is change-driven and may emit only one frame for a static application window. The screen recorder therefore keeps the latest image in persistent Direct3D render targets and feeds Media Foundation on a 60 fps project-clock pacer.
+
+Odd source dimensions are padded to the next even width/height through a GPU-only Win2D render target before H.264 encoding. The capture device remains alive until the pacer drains and the encoder completes; capture stop and device disposal are separate phases.

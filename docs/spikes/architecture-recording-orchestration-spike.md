@@ -63,7 +63,7 @@ tags: ["technical-spike", "architecture", "recording", "research"]
 **Constraints:**
 
 - QPC remains the project clock.
-- Screen and audio are mandatory; camera and cursor are optional.
+- Screen is mandatory; audio, camera, and cursor are attempted by default but may degrade with explicit warnings.
 - Source media remains separate and non-destructive.
 - FFmpeg/analysis remains outside the UI process.
 - Capture uses Direct3D surfaces and requests Media Foundation hardware acceleration.
@@ -86,6 +86,7 @@ tags: ["technical-spike", "architecture", "recording", "research"]
 - The one-click UI was implemented without changing media architecture: camera defaults on, Record initiates source selection when necessary, and Direct3D/Media Foundation acceleration remains enabled.
 - Unsafe unpackaged programmatic-monitor paths were rejected after repeatable native fail-fast crashes. Installed MSIX builds use declared programmatic capture access; unpackaged builds use the Windows picker.
 - A high-signal architecture challenge confirmed that a semaphore alone is insufficient: stop must cancel/join startup, and all stop causes must converge on one teardown task.
+- The post-review harness produced synchronized journal durations of 5.87 seconds with screen/microphone/system media at 5.78/5.80/5.82 seconds.
 
 ### External Resources
 
@@ -115,7 +116,7 @@ This preserves platform-neutral lifecycle rules without pretending Windows healt
 - State transitions are synchronous and revisioned; async serialization stays in the Windows controller.
 - Use single-flight start/stop tasks. Stop first signals startup/session cancellation, then all callers join the same internal teardown.
 - Capture one shared start boundary and one shared stop boundary. Close sample acceptance before draining sources.
-- Mandatory screen/audio failures produce failed or degraded finalization. Camera/cursor failures produce structured warnings and must not block mandatory publication.
+- Screen failure produces failed finalization. Unavailable or failed audio, camera, and cursor sources produce structured warnings and must not block screen publication.
 - Introduce one session-owned project writer/journal and sequence allocator.
 - `StopAsync` ends after raw sources are published and resources are disposed.
 - Queue idempotent post-processing separately; it must not block another recording.
@@ -123,12 +124,13 @@ This preserves platform-neutral lifecycle rules without pretending Windows healt
 
 ### Follow-up Actions
 
-- [ ] Add and test the neutral lifecycle state machine.
-- [ ] Move `SurfaceScreenSegmentRecorder` out of `SevenRecord.App`.
-- [ ] Harden frame-processor fault propagation and idempotent source disposal.
-- [ ] Add the shared project writer/journal.
-- [ ] Implement the Windows controller with fake-resource tests.
-- [ ] Adapt `MainPage` to controller commands and snapshots.
+- [x] Add and test the neutral lifecycle state machine.
+- [x] Move `SurfaceScreenSegmentRecorder` out of `SevenRecord.App`.
+- [x] Harden frame-processor fault propagation and idempotent source disposal.
+- [x] Add the shared project writer/journal.
+- [x] Implement the Windows active-session aggregate and end-to-end harness.
+- [x] Adapt `MainPage` to lifecycle/session commands and results.
+- [x] Add GPU frame pacing for static and odd-sized application windows.
 - [ ] Extract post-processing into an idempotent project pipeline.
 - [ ] Build signed MSIX artifacts before implementing `npx 7record`.
 

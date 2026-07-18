@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-18 16:23 IST
+Last updated: 2026-07-18 18:26 IST
 
 ## Resume Here (deadline checkpoint)
 
@@ -108,9 +108,14 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - `SevenRecord.Recording` now contains the tested neutral recorder state machine.
 - `SevenRecord.Recording.Windows` now owns the Direct3D screen segment encoder/publisher; the next migration step is a reusable Windows controller/active-session aggregate and adapting `MainPage` to its snapshots.
 - Active recording now uses one `RecordingProjectWriter` across screen/audio/camera, providing a single journal owner, serialized sequence allocation, and a cancellation-safe publication commit boundary.
+- `WindowsRecordingSession` now owns the live project clock, pause mapping, capture resources, optional-source policy, single-flight stop, and raw source finalization; `MainPage` holds only this session and renders results.
+- Missing microphone/system playback endpoints are warnings rather than hard blockers.
+- Static or odd-sized application windows are copied through GPU render targets and paced to Media Foundation at 60 fps; the odd-window harness produced H.264 538×634 with clean screen/audio publication.
+- Source acceptance now opens at one shared QPC start boundary and closes at one shared stop boundary; the validation journal reported 5.87 seconds while screen/microphone/system media measured 5.78/5.80/5.82 seconds.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
+- Next architecture feature: extract loading/cursor/audio analysis into an idempotent project post-processing pipeline so the next recording is not blocked.
 - Next distribution feature: produce signed versioned MSIX artifacts, then implement a thin `npx 7record` Windows installer/launcher that downloads, verifies, installs, and opens 7Record.
 
 ## Environment Observed

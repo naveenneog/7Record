@@ -1,8 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\SevenRecord.Audio.Windows\SevenRecord.Audio.Windows.csproj" />
+    <ProjectReference Include="..\SevenRecord.Camera.Windows\SevenRecord.Camera.Windows.csproj" />
     <ProjectReference Include="..\SevenRecord.Capture.Abstractions\SevenRecord.Capture.Abstractions.csproj" />
     <ProjectReference Include="..\SevenRecord.Capture.Windows\SevenRecord.Capture.Windows.csproj" />
+    <ProjectReference Include="..\SevenRecord.Domain\SevenRecord.Domain.csproj" />
+    <ProjectReference Include="..\SevenRecord.Input.Windows\SevenRecord.Input.Windows.csproj" />
     <ProjectReference Include="..\SevenRecord.Media.Windows\SevenRecord.Media.Windows.csproj" />
     <ProjectReference Include="..\SevenRecord.Recording\SevenRecord.Recording.csproj" />
   </ItemGroup>
