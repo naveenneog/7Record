@@ -253,6 +253,11 @@
                                     Style="{StaticResource BodyTextStyle}"
                                     Text="Registering global shortcuts..."
                                     TextWrapping="Wrap" />
+                                <Button
+                                    x:Name="RefreshHotkeysButton"
+                                    HorizontalAlignment="Left"
+                                    Click="OnRefreshHotkeysClicked"
+                                    Content="Retry shortcuts" />
                             </StackPanel>
                             <StackPanel Spacing="6">
                                 <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Recovery" />

@@ -111,6 +111,13 @@ public sealed partial class MainPage : Page, IDisposable
         await RefreshReadinessAsync();
     }
 
+    private void OnRefreshHotkeysClicked(object sender, RoutedEventArgs e)
+    {
+        HotkeyStatusText.Text = "Registering global shortcuts...";
+        DisposeGlobalHotKeys();
+        RegisterGlobalHotKeys();
+    }
+
     private void OnPauseRecordingClicked(object sender, RoutedEventArgs e)
     {
         if (_captureSession is null ||
