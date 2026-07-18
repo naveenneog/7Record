@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-18 08:20 IST
+Last updated: 2026-07-18 08:27 IST
 
 ## Mission
 
@@ -77,6 +77,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Enabled loading suggestions now retime composed video and mixed audio together; a 5.0-second fixture rendered to the expected 3.5 seconds.
 - Recording now pauses screen/audio/camera/cursor sampling and resumes on a gap-free active timeline.
 - System-wide global shortcuts now register `Ctrl+Shift+R` for start/stop and `Ctrl+Shift+P` for pause/resume with conflict feedback when another app owns the shortcut.
+- Recording health now shows explicit shortcut status so users can see whether global hotkeys are active or unavailable at startup.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

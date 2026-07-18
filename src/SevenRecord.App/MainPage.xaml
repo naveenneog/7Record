@@ -247,6 +247,14 @@
                                     TextWrapping="Wrap" />
                             </StackPanel>
                             <StackPanel Spacing="6">
+                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Shortcuts" />
+                                <TextBlock
+                                    x:Name="HotkeyStatusText"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    Text="Registering global shortcuts..."
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Spacing="6">
                                 <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Recovery" />
                                 <TextBlock Style="{StaticResource BodyTextStyle}" Text="Segments will be finalized during recording." TextWrapping="Wrap" />
                             </StackPanel>

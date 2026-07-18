@@ -1000,6 +1000,8 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_globalHotKeys is not null)
         {
+            HotkeyStatusText.Text =
+                "Global shortcuts active: Ctrl+Shift+R (record) and Ctrl+Shift+P (pause).";
             return;
         }
 
@@ -1010,12 +1012,15 @@ public sealed partial class MainPage : Page, IDisposable
                 application.MainWindow);
             _globalHotKeys = new GlobalHotKeyService(windowHandle);
             _globalHotKeys.Triggered += OnGlobalHotKey;
+            HotkeyStatusText.Text =
+                "Global shortcuts active: Ctrl+Shift+R (record) and Ctrl+Shift+P (pause).";
         }
         catch (Win32Exception exception)
         {
             ReadinessInfoBar.Title = "Global shortcut unavailable";
             ReadinessInfoBar.Message = exception.Message;
             ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+            HotkeyStatusText.Text = $"Global shortcuts unavailable: {exception.Message}";
         }
     }
 

@@ -41,6 +41,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added synchronized video/audio loading speed-up export and verified an exact 5.0-to-3.5-second render.
 - Added active-time pause/resume mapping across screen/audio/camera/cursor paths, UI controls, keyboard accelerators, and tests.
 - Added system-wide `Ctrl+Shift+R` / `Ctrl+Shift+P` global hotkeys with Win32 registration, conflict reporting, and clean unregister on app unload.
+- Added a recorder health-panel shortcut status line so users can immediately see whether global hotkeys are active or unavailable.
 
 ### Research
 
