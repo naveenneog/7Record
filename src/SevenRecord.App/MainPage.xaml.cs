@@ -26,6 +26,8 @@ public sealed partial class MainPage : Page, IDisposable
 {
     private static readonly TimeSpan AudioDriftWarningThreshold =
         TimeSpan.FromMilliseconds(40);
+    private static readonly TimeSpan AudioMissingWarningThreshold =
+        TimeSpan.FromMilliseconds(100);
     private static readonly JsonSerializerOptions AudioRepairSerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private static readonly JsonSerializerOptions RenderPlanSerializerOptions =
@@ -1032,15 +1034,19 @@ public sealed partial class MainPage : Page, IDisposable
             return $"{source}: waiting for samples.";
         }
 
+        string missing = health.TotalMissingDuration > TimeSpan.Zero
+            ? $", {health.TotalMissingDuration.TotalMilliseconds:0.#} ms missing"
+            : string.Empty;
         return
             $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
-            $"{health.Discontinuities} discontinuities.";
+            $"{health.Discontinuities} discontinuities{missing}.";
     }
 
     private static bool HasAudioSyncRisk(AudioCaptureHealth? health) =>
         health is not null &&
         (health.Drift.Exceeds(AudioDriftWarningThreshold) ||
-         health.Discontinuities > 0);
+         health.Discontinuities > 0 ||
+         health.TotalMissingDuration >= AudioMissingWarningThreshold);
 
     private void UpdateAudioWarningState()
     {
@@ -1082,14 +1088,16 @@ public sealed partial class MainPage : Page, IDisposable
         {
             details.Add(
                 $"Mic {microphoneHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
-                $"{microphoneHealth.Discontinuities} discontinuities");
+                $"{microphoneHealth.Discontinuities} discontinuities, " +
+                $"{microphoneHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing");
         }
 
         if (HasAudioSyncRisk(systemAudioHealth))
         {
             details.Add(
                 $"System {systemAudioHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
-                $"{systemAudioHealth.Discontinuities} discontinuities");
+                $"{systemAudioHealth.Discontinuities} discontinuities, " +
+                $"{systemAudioHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing");
         }
 
         return details.Count == 0
