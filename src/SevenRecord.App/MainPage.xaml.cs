@@ -1068,23 +1068,33 @@ public sealed partial class MainPage : Page, IDisposable
 
         ReadinessInfoBar.Title = "Audio sync warning";
         ReadinessInfoBar.Message = BuildAudioWarningMessage(
-            microphoneRisk,
-            systemRisk);
+            _microphoneHealth,
+            _systemAudioHealth);
         ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
     }
 
     private static string BuildAudioWarningMessage(
-        bool microphoneRisk,
-        bool systemRisk)
+        AudioCaptureHealth? microphoneHealth,
+        AudioCaptureHealth? systemAudioHealth)
     {
-        if (microphoneRisk && systemRisk)
+        List<string> details = [];
+        if (HasAudioSyncRisk(microphoneHealth))
         {
-            return "Mic and system audio show drift/discontinuity risk. Consider restarting capture.";
+            details.Add(
+                $"Mic {microphoneHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
+                $"{microphoneHealth.Discontinuities} discontinuities");
         }
 
-        return microphoneRisk
-            ? "Microphone capture shows drift/discontinuity risk. Consider restarting capture."
-            : "System audio capture shows drift/discontinuity risk. Consider restarting capture.";
+        if (HasAudioSyncRisk(systemAudioHealth))
+        {
+            details.Add(
+                $"System {systemAudioHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
+                $"{systemAudioHealth.Discontinuities} discontinuities");
+        }
+
+        return details.Count == 0
+            ? "Audio sync risk detected. Consider restarting capture."
+            : $"Audio sync risk detected: {string.Join("; ", details)}. Consider restarting capture.";
     }
 
     private void RegisterGlobalHotKeys()

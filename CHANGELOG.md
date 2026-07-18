@@ -48,6 +48,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added tooltip hints on recording controls to advertise `Ctrl+Shift+R` and `Ctrl+Shift+P` shortcuts in-app.
 - Hardened live audio sync telemetry by tracking microphone and system drift/discontinuities independently and surfacing in-recording warnings only when thresholds are exceeded.
 - Resume now immediately re-evaluates current audio sync risk so warning state stays accurate without waiting for the next callback.
+- Audio sync warnings now include live drift/discontinuity metrics for each affected source to improve diagnosis during recording.
 
 ### Research
 
