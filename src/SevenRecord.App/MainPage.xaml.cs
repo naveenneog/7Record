@@ -24,6 +24,8 @@ namespace SevenRecord.App;
 
 public sealed partial class MainPage : Page, IDisposable
 {
+    private static readonly TimeSpan AudioDriftWarningThreshold =
+        TimeSpan.FromMilliseconds(40);
     private static readonly JsonSerializerOptions AudioRepairSerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private static readonly JsonSerializerOptions RenderPlanSerializerOptions =
@@ -42,6 +44,8 @@ public sealed partial class MainPage : Page, IDisposable
     private WindowsScreenCaptureSession? _captureSession;
     private string? _activeProjectRoot;
     private RecoverableAudioRecordingSession? _audioRecorder;
+    private AudioCaptureHealth? _microphoneHealth;
+    private AudioCaptureHealth? _systemAudioHealth;
     private RecoverableCameraRecordingSession? _cameraRecorder;
     private bool _cameraEnabled;
     private CursorMetadataRecorder? _cursorRecorder;
@@ -633,6 +637,8 @@ public sealed partial class MainPage : Page, IDisposable
             _audioRecorder = pendingAudioRecorder;
             _cameraRecorder = pendingCameraRecorder;
             _cursorRecorder = pendingCursorRecorder;
+            _microphoneHealth = null;
+            _systemAudioHealth = null;
             _activeProjectRoot = projectRoot;
             _recordingClock = projectClock;
             _pauseController = pauseController;
@@ -652,6 +658,9 @@ public sealed partial class MainPage : Page, IDisposable
             ReadinessInfoBar.Message = "Capturing Direct3D surfaces with Media Foundation.";
             ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
             FrameStatusText.Text = "Waiting for the first frame...";
+            AudioStatusText.Text =
+                "Mic: waiting for samples." + Environment.NewLine +
+                "System: waiting for samples.";
         }
         catch (Exception exception)
         {
@@ -857,6 +866,8 @@ public sealed partial class MainPage : Page, IDisposable
         string? projectRoot = _activeProjectRoot;
         _segmentRecorder = null;
         _audioRecorder = null;
+        _microphoneHealth = null;
+        _systemAudioHealth = null;
         _cameraRecorder = null;
         _cursorRecorder = null;
         _activeProjectRoot = null;
@@ -995,13 +1006,84 @@ public sealed partial class MainPage : Page, IDisposable
     {
         DispatcherQueue.TryEnqueue(() =>
         {
-            string source = health.Source is AudioCaptureSource.Microphone
-                ? "Mic"
-                : "System";
-            AudioStatusText.Text =
-                $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
-                $"{health.Discontinuities} discontinuities.";
+            if (health.Source is AudioCaptureSource.Microphone)
+            {
+                _microphoneHealth = health;
+            }
+            else
+            {
+                _systemAudioHealth = health;
+            }
+
+            AudioStatusText.Text = BuildAudioHealthText();
+            UpdateAudioWarningState();
         });
+    }
+
+    private string BuildAudioHealthText() =>
+        DescribeAudioHealth("Mic", _microphoneHealth) + Environment.NewLine +
+        DescribeAudioHealth("System", _systemAudioHealth);
+
+    private static string DescribeAudioHealth(string source, AudioCaptureHealth? health)
+    {
+        if (health is null)
+        {
+            return $"{source}: waiting for samples.";
+        }
+
+        return
+            $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
+            $"{health.Discontinuities} discontinuities.";
+    }
+
+    private static bool HasAudioSyncRisk(AudioCaptureHealth? health) =>
+        health is not null &&
+        (health.Drift.Exceeds(AudioDriftWarningThreshold) ||
+         health.Discontinuities > 0);
+
+    private void UpdateAudioWarningState()
+    {
+        if (_captureSession is null ||
+            _pauseController?.IsPaused is true ||
+            ReadinessInfoBar.Severity is InfoBarSeverity.Error)
+        {
+            return;
+        }
+
+        bool microphoneRisk = HasAudioSyncRisk(_microphoneHealth);
+        bool systemRisk = HasAudioSyncRisk(_systemAudioHealth);
+        if (!microphoneRisk && !systemRisk)
+        {
+            if (ReadinessInfoBar.Title == "Audio sync warning")
+            {
+                ReadinessInfoBar.Title = "Recording";
+                ReadinessInfoBar.Message =
+                    "Capturing Direct3D surfaces with Media Foundation.";
+                ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
+            }
+
+            return;
+        }
+
+        ReadinessInfoBar.Title = "Audio sync warning";
+        ReadinessInfoBar.Message = BuildAudioWarningMessage(
+            microphoneRisk,
+            systemRisk);
+        ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+    }
+
+    private static string BuildAudioWarningMessage(
+        bool microphoneRisk,
+        bool systemRisk)
+    {
+        if (microphoneRisk && systemRisk)
+        {
+            return "Mic and system audio show drift/discontinuity risk. Consider restarting capture.";
+        }
+
+        return microphoneRisk
+            ? "Microphone capture shows drift/discontinuity risk. Consider restarting capture."
+            : "System audio capture shows drift/discontinuity risk. Consider restarting capture.";
     }
 
     private void RegisterGlobalHotKeys()

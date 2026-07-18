@@ -46,6 +46,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Disabled `Retry shortcuts` automatically when global hotkeys are active and re-enabled it when registration is unavailable.
 - Cleared stale global-shortcut warning banners automatically after successful shortcut registration/retry.
 - Added tooltip hints on recording controls to advertise `Ctrl+Shift+R` and `Ctrl+Shift+P` shortcuts in-app.
+- Hardened live audio sync telemetry by tracking microphone and system drift/discontinuities independently and surfacing in-recording warnings only when thresholds are exceeded.
 
 ### Research
 
