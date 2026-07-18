@@ -1011,6 +1011,7 @@ public sealed partial class MainPage : Page, IDisposable
             HotkeyStatusText.Text =
                 "Global shortcuts active: Ctrl+Shift+R (record) and Ctrl+Shift+P (pause).";
             RefreshHotkeysButton.IsEnabled = false;
+            UpdateReadinessSummary();
             return;
         }
 
@@ -1024,6 +1025,7 @@ public sealed partial class MainPage : Page, IDisposable
             HotkeyStatusText.Text =
                 "Global shortcuts active: Ctrl+Shift+R (record) and Ctrl+Shift+P (pause).";
             RefreshHotkeysButton.IsEnabled = false;
+            UpdateReadinessSummary();
         }
         catch (Win32Exception exception)
         {

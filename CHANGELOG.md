@@ -44,6 +44,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added a recorder health-panel shortcut status line so users can immediately see whether global hotkeys are active or unavailable.
 - Added a `Retry shortcuts` action in recording health so global-hotkey registration can be retried after startup conflicts without restarting.
 - Disabled `Retry shortcuts` automatically when global hotkeys are active and re-enabled it when registration is unavailable.
+- Cleared stale global-shortcut warning banners automatically after successful shortcut registration/retry.
 
 ### Research
 
