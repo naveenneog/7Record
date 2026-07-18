@@ -53,6 +53,9 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Audio telemetry and warning details now include drift-rate parts-per-million (ppm) per source for clearer long-recording clock-skew diagnosis.
 - Stopping a recording now reruns readiness checks so post-capture UI status resets from live telemetry back to current device/encoder health.
 - Fixed direct unpackaged startup by initializing the Windows App SDK dynamic dependency before WinUI activation; packaged launches remain a no-op.
+- Simplified the recorder around one `Record` action: the camera overlay is on by default, the first enumerated/default camera starts automatically, and no camera pre-configuration is required.
+- Added installed-MSIX primary-display auto-selection with programmatic capture permission while retaining `Choose application or display` for window/display selection.
+- Kept the unpackaged development build safe: Record opens the Windows source picker and continues immediately after selection.
 
 ### Research
 
@@ -76,6 +79,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Remote Audio microphone capture showed variable loss (one 60-second run missed about 1.1 seconds), so dropouts are tracked separately from clock drift.
 - Both redirected camera devices enumerate but deliver no frames in the current environment; camera configuration now times out safely and remains optional.
 - The remote desktop session exposes no cursor through `GetCursorPos`; cursor metadata now reports unavailable and remains optional.
+- Direct unpackaged primary-monitor creation through `IGraphicsCaptureItemInterop` and unguarded display-ID access both caused native WinUI fail-fast crashes (`0xc000027b`) on this runtime; those paths were rejected in favor of package-gated programmatic capture and the safe picker fallback.
 
 ### Pending
 

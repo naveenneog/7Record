@@ -49,7 +49,7 @@ public sealed partial class MainPage : Page, IDisposable
     private AudioCaptureHealth? _microphoneHealth;
     private AudioCaptureHealth? _systemAudioHealth;
     private RecoverableCameraRecordingSession? _cameraRecorder;
-    private bool _cameraEnabled;
+    private bool _cameraEnabled = true;
     private CursorMetadataRecorder? _cursorRecorder;
     private GlobalHotKeyService? _globalHotKeys;
     private ProjectClock? _recordingClock;
@@ -85,13 +85,11 @@ public sealed partial class MainPage : Page, IDisposable
                     probeRoot,
                     clock,
                     new RecordingPauseController());
-            _cameraEnabled = true;
             CameraStatusText.Text =
                 $"{camera.DeviceName} ({camera.Width} x {camera.Height}) is ready.";
         }
         catch (Exception exception)
         {
-            _cameraEnabled = false;
             CameraStatusText.Text = $"Camera unavailable: {exception.Message}";
         }
         finally
@@ -107,9 +105,18 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        await TrySelectPrimaryDisplayAsync();
         await RefreshReadinessAsync();
         await RefreshProjectsAsync();
         RegisterGlobalHotKeys();
+    }
+
+    private void OnCameraOverlayToggled(object sender, RoutedEventArgs e)
+    {
+        _cameraEnabled = CameraOverlayToggle.IsOn;
+        CameraStatusText.Text = _cameraEnabled
+            ? "The default camera will start automatically with recording."
+            : "Camera overlay is off.";
     }
 
     private async void OnRefreshReadinessClicked(object sender, RoutedEventArgs e)
@@ -580,6 +587,19 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
 
+        if (_selectedScreen is null &&
+            !await TrySelectPrimaryDisplayAsync() &&
+            !await PickCaptureTargetAsync())
+        {
+            UpdateReadinessSummary();
+            return;
+        }
+
+        if (_lastSnapshot?.CanRecord is not true)
+        {
+            await RefreshReadinessAsync();
+        }
+
         if (_selectedScreen is null || _lastSnapshot?.CanRecord is not true)
         {
             UpdateReadinessSummary();
@@ -595,6 +615,7 @@ public sealed partial class MainPage : Page, IDisposable
         RecoverableAudioRecordingSession? pendingAudioRecorder = null;
         RecoverableCameraRecordingSession? pendingCameraRecorder = null;
         CursorMetadataRecorder? pendingCursorRecorder = null;
+        string? cameraStartWarning = null;
         try
         {
             string projectRoot = CreateProjectRoot();
@@ -623,11 +644,26 @@ public sealed partial class MainPage : Page, IDisposable
             pendingAudioRecorder.HealthChanged += OnAudioHealthChanged;
             if (_cameraEnabled)
             {
-                pendingCameraRecorder =
-                    await RecoverableCameraRecordingSession.CreateAsync(
-                        projectRoot,
-                        projectClock,
-                        pauseController);
+                try
+                {
+                    pendingCameraRecorder =
+                        await RecoverableCameraRecordingSession.CreateAsync(
+                            projectRoot,
+                            projectClock,
+                            pauseController);
+                    CameraStatusText.Text =
+                        $"{pendingCameraRecorder.DeviceName} is recording with GPU surface encoding.";
+                }
+                catch (Exception exception) when (
+                    exception is COMException or
+                        InvalidOperationException or
+                        UnauthorizedAccessException)
+                {
+                    cameraStartWarning = exception.Message;
+                    CameraStatusText.Text =
+                        $"Camera could not start; screen recording continues. {exception.Message}";
+                    System.Diagnostics.Debug.WriteLine(exception);
+                }
             }
             WindowsScreenCaptureSession capture = WindowsScreenCaptureSession.Start(
                 _selectedScreen.Item,
@@ -651,15 +687,22 @@ public sealed partial class MainPage : Page, IDisposable
             pendingCursorRecorder = null;
             _captureSession = capture;
 
-            StartRecordingButton.Content = "Stop recording";
+            StartRecordingButton.Content = "Stop";
             StartRecordingButton.IsEnabled = true;
             PauseRecordingButton.Content = "Pause";
             PauseRecordingButton.IsEnabled = true;
             ChooseSourceButton.IsEnabled = false;
+            CameraOverlayToggle.IsEnabled = false;
             RefreshReadinessButton.IsEnabled = false;
-            ReadinessInfoBar.Title = "Recording";
-            ReadinessInfoBar.Message = "Capturing Direct3D surfaces with Media Foundation.";
-            ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
+            ReadinessInfoBar.Title = cameraStartWarning is null
+                ? "Recording"
+                : "Recording without camera";
+            ReadinessInfoBar.Message = cameraStartWarning is null
+                ? "Capturing accelerated Direct3D surfaces with camera, microphone, and system audio."
+                : $"Screen and audio are recording. Camera unavailable: {cameraStartWarning}";
+            ReadinessInfoBar.Severity = cameraStartWarning is null
+                ? InfoBarSeverity.Informational
+                : InfoBarSeverity.Warning;
             FrameStatusText.Text = "Waiting for the first frame...";
             AudioStatusText.Text =
                 "Mic: waiting for samples." + Environment.NewLine +
@@ -696,33 +739,71 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
+    private async Task<bool> TrySelectPrimaryDisplayAsync()
+    {
+        try
+        {
+            WindowsCaptureTarget target =
+                await WindowsCaptureSourcePicker.GetPrimaryDisplayAsync();
+            _selectedScreen = target;
+            ScreenStatusText.Text =
+                $"Primary display: {target.DisplayName} ({target.Width} x {target.Height})";
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is COMException or
+                InvalidOperationException or
+                NotSupportedException or
+                UnauthorizedAccessException)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+            ScreenStatusText.Text =
+                "Primary display could not be selected automatically. Choose an application or display.";
+            return false;
+        }
+    }
+
     private async void OnChooseSourceClicked(object sender, RoutedEventArgs e)
     {
         ChooseSourceButton.IsEnabled = false;
 
         try
         {
-            App application = (App)Application.Current;
-            nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(application.MainWindow);
-            WindowsCaptureTarget? target = await WindowsCaptureSourcePicker.PickAsync(windowHandle);
-            if (target is null)
-            {
-                return;
-            }
-
-            _selectedScreen = target;
-            ScreenStatusText.Text = $"{target.DisplayName} ({target.Width} x {target.Height})";
-            UpdateReadinessSummary();
-        }
-        catch (COMException exception)
-        {
-            ReadinessInfoBar.Title = "Screen selection failed";
-            ReadinessInfoBar.Message = $"Windows capture picker failed (0x{exception.HResult:X8}).";
-            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+            await PickCaptureTargetAsync();
         }
         finally
         {
             ChooseSourceButton.IsEnabled = true;
+        }
+    }
+
+    private async Task<bool> PickCaptureTargetAsync()
+    {
+        try
+        {
+            App application = (App)Application.Current;
+            nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(
+                application.MainWindow);
+            WindowsCaptureTarget? target =
+                await WindowsCaptureSourcePicker.PickAsync(windowHandle);
+            if (target is null)
+            {
+                return false;
+            }
+
+            _selectedScreen = target;
+            ScreenStatusText.Text =
+                $"{target.DisplayName} ({target.Width} x {target.Height})";
+            UpdateReadinessSummary();
+            return true;
+        }
+        catch (COMException exception)
+        {
+            ReadinessInfoBar.Title = "Screen selection failed";
+            ReadinessInfoBar.Message =
+                $"Windows capture picker failed (0x{exception.HResult:X8}).";
+            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+            return false;
         }
     }
 
@@ -791,7 +872,7 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
 
-        bool canRecord = _lastSnapshot.CanRecord && _selectedScreen is not null;
+        bool canRecord = _lastSnapshot.CanRecord;
         StartRecordingButton.IsEnabled = canRecord;
 
         if (!_lastSnapshot.CanRecord)
@@ -806,14 +887,17 @@ public sealed partial class MainPage : Page, IDisposable
 
         if (_selectedScreen is null)
         {
-            ReadinessInfoBar.Title = "Choose what to record";
-            ReadinessInfoBar.Message = "Select a display or application window before recording.";
-            ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+            ReadinessInfoBar.Title = "Ready";
+            ReadinessInfoBar.Message =
+                "Press Record, choose an application or display, and capture starts immediately.";
+            ReadinessInfoBar.Severity = InfoBarSeverity.Success;
             return;
         }
 
         ReadinessInfoBar.Title = "Ready to record";
-        ReadinessInfoBar.Message = "The selected source, audio, storage, and media checks passed.";
+        ReadinessInfoBar.Message = _cameraEnabled
+            ? "Press Record for the selected source with the default camera overlay and accelerated encoding."
+            : "Press Record for the selected source with accelerated encoding.";
         ReadinessInfoBar.Severity = InfoBarSeverity.Success;
     }
 
@@ -985,10 +1069,11 @@ public sealed partial class MainPage : Page, IDisposable
             }
         }
 
-        StartRecordingButton.Content = "New recording";
+        StartRecordingButton.Content = "Record";
         PauseRecordingButton.Content = "Pause";
         PauseRecordingButton.IsEnabled = false;
         ChooseSourceButton.IsEnabled = true;
+        CameraOverlayToggle.IsEnabled = true;
         RefreshReadinessButton.IsEnabled = true;
         if (ReadinessInfoBar.Severity is not InfoBarSeverity.Error)
         {

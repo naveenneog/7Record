@@ -269,3 +269,21 @@ The source timeline remains unchanged when the event is disabled.
 Pause does not stop the project clock. A shared pause controller maps raw QPC time to active recording time, skips screen/audio/camera/cursor samples while paused, and removes the pause gap from resumed timestamps and journal duration.
 
 Ctrl+Shift+R and Ctrl+Shift+P are initial in-app accelerators. System-wide registration is a separate permission/lifecycle feature.
+
+## D-031: One-click recording defaults
+
+**Status:** Accepted
+**Date:** 2026-07-18
+
+The primary action remains `Record`. Camera overlay is enabled by default and starts with screen, microphone, and system audio without requiring a separate camera configuration step. Media Foundation continues to receive Direct3D surfaces with hardware acceleration enabled.
+
+An installed MSIX requests programmatic graphics-capture access and selects the primary display automatically. The unpackaged development executable avoids the unsafe programmatic path and opens the Windows application/display picker from the same `Record` action, continuing immediately after selection. The explicit picker remains available so users can record one application or another display.
+
+## D-032: npm distribution boundary
+
+**Status:** Accepted as distribution plan
+**Date:** 2026-07-18
+
+7Record remains a native .NET/WinUI application. A future `npx` package is a thin installer/launcher: detect Windows architecture, download the matching signed 7Record MSIX release, verify its checksum/signature, install it, and launch `7Record`.
+
+The npm package must not reimplement capture in Node.js or bundle an unsigned executable. Publishing it is gated on producing signed versioned MSIX release artifacts.

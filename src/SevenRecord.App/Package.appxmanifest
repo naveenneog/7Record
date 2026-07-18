@@ -47,6 +47,7 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <uap:Capability Name="graphicsCaptureProgrammatic" />
     <DeviceCapability Name="microphone" />
     <DeviceCapability Name="webcam" />
   </Capabilities>

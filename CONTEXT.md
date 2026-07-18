@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-18 09:07 IST
+Last updated: 2026-07-18 16:23 IST
 
 ## Resume Here (deadline checkpoint)
 
@@ -101,10 +101,13 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Audio health/warnings now include per-source drift-rate ppm, improving visibility into sustained clock skew.
 - Recording stop now triggers readiness rechecks, clearing stale live-capture telemetry from status panels.
 - The unpackaged `SevenRecord.App.exe` now bootstraps the Windows App SDK before WinUI activation and launches directly; the product name remains `7Record`.
+- The recorder now centers one `Record` action: camera overlay defaults on and starts automatically with screen, microphone, and system audio through the accelerated Direct3D/Media Foundation path.
+- Installed MSIX builds auto-select the primary display after programmatic-capture access; unpackaged development builds open `Capture with 7Record` and continue immediately after the user chooses an application or display.
+- `Choose application or display` remains available for explicit source selection.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next feature: continue export and editor hardening (UI polish, packaging gates, and end-to-end capture stress validation).
+- Next distribution feature: produce signed versioned MSIX artifacts, then implement a thin `npx 7record` Windows installer/launcher that downloads, verifies, installs, and opens 7Record.
 
 ## Environment Observed
 

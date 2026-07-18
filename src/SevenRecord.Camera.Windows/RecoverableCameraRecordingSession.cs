@@ -103,11 +103,9 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         IReadOnlyList<MediaFrameSourceGroup> groups =
             await MediaFrameSourceGroup.FindAllAsync();
         MediaFrameSourceGroup group = groups
-            .Where(candidate =>
+            .FirstOrDefault(candidate =>
                 candidate.SourceInfos.Any(info =>
                     info.SourceKind is MediaFrameSourceKind.Color))
-            .OrderBy(candidate => candidate.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault()
             ?? throw new InvalidOperationException("No color camera source is available.");
 
         MediaCapture capture = new();

@@ -47,9 +47,9 @@
                     x:Name="StartRecordingButton"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
-                    AutomationProperties.Name="Start a new recording"
+                    AutomationProperties.Name="Start recording"
                     Click="OnStartRecordingClicked"
-                    Content="New recording"
+                    Content="Record"
                     IsEnabled="False"
                     Style="{StaticResource AccentButtonStyle}"
                     ToolTipService.ToolTip="Global shortcut: Ctrl+Shift+R" />
@@ -104,12 +104,12 @@
                 HorizontalAlignment="Stretch"
                 Spacing="28">
                 <StackPanel Spacing="8">
-                    <TextBlock Style="{StaticResource PageTitleStyle}" Text="Create a focused recording" />
+                    <TextBlock Style="{StaticResource PageTitleStyle}" Text="Record now" />
                     <TextBlock
                         MaxWidth="720"
                         HorizontalAlignment="Left"
                         Style="{StaticResource BodyTextStyle}"
-                        Text="Choose your sources, verify capture health, and record screen-led content that is ready for a smart first edit."
+                        Text="Press Record to capture the primary display, default camera, microphone, and system audio. Use Choose application or display only when you want a different source."
                         TextWrapping="Wrap" />
                 </StackPanel>
 
@@ -136,9 +136,9 @@
                             <Button
                                 x:Name="ChooseSourceButton"
                                 HorizontalAlignment="Left"
-                                AutomationProperties.Name="Choose a screen or window"
+                                AutomationProperties.Name="Choose an application or display"
                                 Click="OnChooseSourceClicked"
-                                Content="Choose source" />
+                                Content="Choose application or display" />
                         </StackPanel>
                     </Border>
 
@@ -156,11 +156,16 @@
                                 Style="{StaticResource BodyTextStyle}"
                                 Text="Checking camera devices..."
                                 TextWrapping="Wrap" />
+                            <ToggleSwitch
+                                x:Name="CameraOverlayToggle"
+                                Header="Include camera overlay"
+                                IsOn="True"
+                                Toggled="OnCameraOverlayToggled" />
                             <Button
                                 x:Name="ConfigureCameraButton"
                                 HorizontalAlignment="Left"
                                 Click="OnConfigureCameraClicked"
-                                Content="Configure camera" />
+                                Content="Test camera" />
                         </StackPanel>
                     </Border>
 
