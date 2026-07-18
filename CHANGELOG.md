@@ -51,6 +51,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Audio sync warnings now include live drift/discontinuity metrics for each affected source to improve diagnosis during recording.
 - Audio sync telemetry now reports cumulative missing-duration per source and treats significant missing audio as warning-risk alongside drift/discontinuities.
 - Audio telemetry and warning details now include drift-rate parts-per-million (ppm) per source for clearer long-recording clock-skew diagnosis.
+- Stopping a recording now reruns readiness checks so post-capture UI status resets from live telemetry back to current device/encoder health.
 
 ### Research
 

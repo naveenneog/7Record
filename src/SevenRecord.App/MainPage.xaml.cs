@@ -992,7 +992,7 @@ public sealed partial class MainPage : Page, IDisposable
         RefreshReadinessButton.IsEnabled = true;
         if (ReadinessInfoBar.Severity is not InfoBarSeverity.Error)
         {
-            UpdateReadinessSummary();
+            await RefreshReadinessAsync();
         }
         await RefreshProjectsAsync();
     }
