@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.UI.Xaml;
@@ -44,6 +45,7 @@ public sealed partial class MainPage : Page
     private RecoverableCameraRecordingSession? _cameraRecorder;
     private bool _cameraEnabled;
     private CursorMetadataRecorder? _cursorRecorder;
+    private GlobalHotKeyService? _globalHotKeys;
     private ProjectClock? _recordingClock;
     private RecordingPauseController? _pauseController;
     private SurfaceScreenSegmentRecorder? _segmentRecorder;
@@ -101,6 +103,7 @@ public sealed partial class MainPage : Page
     {
         await RefreshReadinessAsync();
         await RefreshProjectsAsync();
+        RegisterGlobalHotKeys();
     }
 
     private async void OnRefreshReadinessClicked(object sender, RoutedEventArgs e)
@@ -544,6 +547,13 @@ public sealed partial class MainPage : Page
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        if (_globalHotKeys is not null)
+        {
+            _globalHotKeys.Triggered -= OnGlobalHotKey;
+            _globalHotKeys.Dispose();
+            _globalHotKeys = null;
+        }
+
         await StopCaptureAsync();
     }
 
@@ -984,6 +994,41 @@ public sealed partial class MainPage : Page
                 $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
                 $"{health.Discontinuities} discontinuities.";
         });
+    }
+
+    private void RegisterGlobalHotKeys()
+    {
+        if (_globalHotKeys is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            App application = (App)Application.Current;
+            nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(
+                application.MainWindow);
+            _globalHotKeys = new GlobalHotKeyService(windowHandle);
+            _globalHotKeys.Triggered += OnGlobalHotKey;
+        }
+        catch (Win32Exception exception)
+        {
+            ReadinessInfoBar.Title = "Global shortcut unavailable";
+            ReadinessInfoBar.Message = exception.Message;
+            ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+        }
+    }
+
+    private void OnGlobalHotKey(GlobalHotKeyAction action)
+    {
+        if (action is GlobalHotKeyAction.StartStopRecording)
+        {
+            OnStartRecordingClicked(this, new RoutedEventArgs());
+        }
+        else
+        {
+            OnPauseRecordingClicked(this, new RoutedEventArgs());
+        }
     }
 
     private async Task RefreshProjectsAsync()

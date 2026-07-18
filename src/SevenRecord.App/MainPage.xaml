@@ -51,11 +51,7 @@
                     Click="OnStartRecordingClicked"
                     Content="New recording"
                     IsEnabled="False"
-                    Style="{StaticResource AccentButtonStyle}">
-                    <Button.KeyboardAccelerators>
-                        <KeyboardAccelerator Key="R" Modifiers="Control,Shift" />
-                    </Button.KeyboardAccelerators>
-                </Button>
+                    Style="{StaticResource AccentButtonStyle}" />
                 <Button
                     x:Name="PauseRecordingButton"
                     Margin="0,0,150,0"
@@ -63,11 +59,7 @@
                     VerticalAlignment="Center"
                     Click="OnPauseRecordingClicked"
                     Content="Pause"
-                    IsEnabled="False">
-                    <Button.KeyboardAccelerators>
-                        <KeyboardAccelerator Key="P" Modifiers="Control,Shift" />
-                    </Button.KeyboardAccelerators>
-                </Button>
+                    IsEnabled="False" />
             </Grid>
         </Border>
 
