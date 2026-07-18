@@ -100,6 +100,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Audio health now includes per-source cumulative missing duration and raises warning state when missing audio exceeds threshold.
 - Audio health/warnings now include per-source drift-rate ppm, improving visibility into sustained clock skew.
 - Recording stop now triggers readiness rechecks, clearing stale live-capture telemetry from status panels.
+- The unpackaged `SevenRecord.App.exe` now bootstraps the Windows App SDK before WinUI activation and launches directly; the product name remains `7Record`.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
