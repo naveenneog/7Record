@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-18 08:51 IST
+Last updated: 2026-07-18 08:56 IST
 
 ## Mission
 
@@ -83,6 +83,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Successful hotkey registration now restores the readiness banner so prior shortcut-conflict warnings do not linger.
 - The record/pause controls now expose hotkey tooltip hints so shortcut discovery does not depend on external docs.
 - Live audio telemetry now tracks mic and system capture health independently and raises an explicit in-recording warning when drift/discontinuity risk crosses threshold.
+- Pause/resume now refreshes audio warning state immediately on resume, so risk banners stay accurate even before the next audio callback.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

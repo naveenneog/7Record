@@ -139,6 +139,7 @@ public sealed partial class MainPage : Page, IDisposable
             PauseRecordingButton.Content = "Pause";
             ReadinessInfoBar.Title = "Recording";
             ReadinessInfoBar.Message = "Recording resumed.";
+            UpdateAudioWarningState();
         }
         else
         {
