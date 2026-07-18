@@ -105,6 +105,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Installed MSIX builds auto-select the primary display after programmatic-capture access; unpackaged development builds open `Capture with 7Record` and continue immediately after the user chooses an application or display.
 - `Choose application or display` remains available for explicit source selection.
 - `docs/spikes/architecture-recording-orchestration-spike.md` records the accepted migration away from `MainPage`-owned resources: neutral revisioned lifecycle state, Windows controller/active session, single-flight stop, one journal owner, optional-source failure isolation, and post-processing after raw finalization.
+- `SevenRecord.Recording` now contains the tested neutral recorder state machine; the next migration step is moving Windows session resources behind a controller and adapting `MainPage` to its snapshots.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
