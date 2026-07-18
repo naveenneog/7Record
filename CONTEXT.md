@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-18 09:04 IST
+Last updated: 2026-07-18 08:59 IST
 
 ## Mission
 
@@ -86,6 +86,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Pause/resume now refreshes audio warning state immediately on resume, so risk banners stay accurate even before the next audio callback.
 - Audio risk warnings now include live drift and discontinuity numbers per source for faster diagnosis while recording.
 - Audio health now includes per-source cumulative missing duration and raises warning state when missing audio exceeds threshold.
+- Audio health/warnings now include per-source drift-rate ppm, improving visibility into sustained clock skew.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

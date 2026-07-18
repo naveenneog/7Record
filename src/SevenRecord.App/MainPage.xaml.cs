@@ -1038,7 +1038,8 @@ public sealed partial class MainPage : Page, IDisposable
             ? $", {health.TotalMissingDuration.TotalMilliseconds:0.#} ms missing"
             : string.Empty;
         return
-            $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
+            $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift " +
+            $"({health.Drift.PartsPerMillion:+0;-0;0} ppm), " +
             $"{health.Discontinuities} discontinuities{missing}.";
     }
 
@@ -1088,6 +1089,7 @@ public sealed partial class MainPage : Page, IDisposable
         {
             details.Add(
                 $"Mic {microphoneHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
+                $"{microphoneHealth.Drift.PartsPerMillion:+0;-0;0} ppm, " +
                 $"{microphoneHealth.Discontinuities} discontinuities, " +
                 $"{microphoneHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing");
         }
@@ -1096,6 +1098,7 @@ public sealed partial class MainPage : Page, IDisposable
         {
             details.Add(
                 $"System {systemAudioHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
+                $"{systemAudioHealth.Drift.PartsPerMillion:+0;-0;0} ppm, " +
                 $"{systemAudioHealth.Discontinuities} discontinuities, " +
                 $"{systemAudioHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing");
         }
