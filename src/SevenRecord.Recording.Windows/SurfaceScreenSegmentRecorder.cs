@@ -1,11 +1,10 @@
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Media.Windows;
-using SevenRecord.Recording;
 
-namespace SevenRecord.App;
+namespace SevenRecord.Recording.Windows;
 
-internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
+public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
 {
     private const int FramesPerSecond = 60;
     private const uint Bitrate = 12_000_000;
@@ -47,8 +46,12 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(pauseController);
         Directory.CreateDirectory(projectRoot);
 
-        string temporaryPath = Path.Combine(projectRoot, "temp", "screen.partial.mp4");
-        RecordingJournal journal = new(Path.Combine(projectRoot, "recording.journal"));
+        string temporaryPath = Path.Combine(
+            projectRoot,
+            "temp",
+            "screen.partial.mp4");
+        RecordingJournal journal = new(
+            Path.Combine(projectRoot, "recording.journal"));
         RecordingSegmentPublisher publisher = new(projectRoot, journal);
 
         try
@@ -95,7 +98,8 @@ internal sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
     {
         if (_completed)
         {
-            throw new InvalidOperationException("The surface segment is already complete.");
+            throw new InvalidOperationException(
+                "The surface segment is already complete.");
         }
 
         _completed = true;

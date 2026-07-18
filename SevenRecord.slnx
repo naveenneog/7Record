@@ -15,6 +15,7 @@
     <Project Path="src/SevenRecord.Media.Worker/SevenRecord.Media.Worker.csproj" />
     <Project Path="src/SevenRecord.Media/SevenRecord.Media.csproj" />
     <Project Path="src/SevenRecord.Recording/SevenRecord.Recording.csproj" />
+    <Project Path="src/SevenRecord.Recording.Windows/SevenRecord.Recording.Windows.csproj" />
     <Project Path="src/SevenRecord.Transcription/SevenRecord.Transcription.csproj" />
   </Folder>
   <Folder Name="/tests/">

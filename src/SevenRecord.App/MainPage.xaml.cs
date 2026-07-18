@@ -18,6 +18,7 @@ using SevenRecord.Infrastructure;
 using SevenRecord.Input.Windows;
 using SevenRecord.Media;
 using SevenRecord.Recording;
+using SevenRecord.Recording.Windows;
 using SevenRecord.Transcription;
 
 namespace SevenRecord.App;

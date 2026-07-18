@@ -58,6 +58,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Kept the unpackaged development build safe: Record opens the Windows source picker and continues immediately after selection.
 - Completed the recording-orchestration architecture spike: accepted a neutral lifecycle state machine, Windows controller/active-session boundary, single-flight teardown, one journal owner, optional-source failure isolation, and separate post-processing pipeline.
 - Added a thread-safe, revisioned recorder lifecycle state machine (`Idle`, `Starting`, `Recording`, `Paused`, `Stopping`, `Faulted`) with concurrent-stop and invalid-transition tests.
+- Added `SevenRecord.Recording.Windows` and moved the Direct3D screen encoder/publisher out of the WinUI project without changing recording behavior.
 
 ### Research
 
