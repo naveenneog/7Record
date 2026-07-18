@@ -115,6 +115,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - The recorder UI is now preview-first with native Recorder/Projects navigation, one branded Record action, state pill/timer/progress feedback, compact source rows, progressive health, adaptive 1024×720 stacking, dynamic UIA names, and contrast-theme resources.
 - Redirected camera frames now cross Direct3D device domains through `VideoFrame.CopyToAsync`; the 1280×720 camera probe delivered 40 frames with zero drops and the full camera-on capture harness published screen/audio/camera.
 - UI/UX and senior-QA findings, fixes, evidence, and residual manual checks are logged in `docs/qa/recorder-ui-ux-qa-2026-07-18.md`; `tools/test-recorder-ui.ps1` is the repeatable UIA/adaptivity gate.
+- Projects now expose explicit `Open recording` actions and an inline `MediaPlayerElement`; playback prefers the newest exported MP4 and falls back to the immutable screen source with clear camera/audio composition messaging.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

@@ -609,6 +609,42 @@
                                     x:Name="TimelineProjectTitle"
                                     Style="{StaticResource BodyTextStyle}"
                                     TextWrapping="Wrap" />
+
+                                <Border
+                                    MinHeight="320"
+                                    Background="#FF050505"
+                                    BorderBrush="{StaticResource StudioDividerBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                    <MediaPlayerElement
+                                        x:Name="ProjectPreviewPlayer"
+                                        AreTransportControlsEnabled="True"
+                                        AutoPlay="False"
+                                        AutomationProperties.Name="Recording preview"
+                                        Stretch="Uniform" />
+                                </Border>
+
+                                <TextBlock
+                                    x:Name="ProjectPreviewStatusText"
+                                    Style="{StaticResource MetaTextStyle}"
+                                    Text="Select a recording to load its preview."
+                                    TextWrapping="Wrap" />
+
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        x:Name="OpenRecordingExternallyButton"
+                                        AutomationProperties.Name="Open recording in the default video player"
+                                        Click="OnOpenRecordingExternallyClicked"
+                                        Content="Open in player"
+                                        IsEnabled="False" />
+                                    <Button
+                                        x:Name="OpenProjectFolderButton"
+                                        AutomationProperties.Name="Open recording project folder"
+                                        Click="OnOpenProjectFolderClicked"
+                                        Content="Open project folder"
+                                        IsEnabled="False" />
+                                </StackPanel>
+
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />

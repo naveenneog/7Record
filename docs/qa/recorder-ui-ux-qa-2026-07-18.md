@@ -57,6 +57,7 @@ Target: `src/SevenRecord.App/MainPage.xaml`
   - Dynamic recorder-status UIA name verified.
   - 1024×720 adaptive stacking verified.
   - Projects navigation and list UIA name verified.
+  - Explicit project open action, inline Play control, and external-open action verified.
 - Camera probe: Surface Camera Front (redirected), 1280×720, 40 frames, 0 dropped.
 - Full camera-on capture harness: screen, microphone, system audio, and camera published successfully.
 - Visual evidence:

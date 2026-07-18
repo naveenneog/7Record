@@ -73,6 +73,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Fixed redirected-camera frame processing by replacing cross-device Win2D drawing (`D2DERR_WRONG_RESOURCE_DOMAIN`) with `VideoFrame.CopyToAsync`; camera probe and camera-on full recording now pass.
 - Added `tools/test-recorder-ui.ps1` and updated the capture performance harness for the redesigned progressive-disclosure UI.
 - Logged baseline, post-redesign, corrective actions, QA evidence, and residual release risks in `docs/qa/recorder-ui-ux-qa-2026-07-18.md`.
+- Added explicit `Open recording` actions, inline native playback with transport controls, exported-MP4 preference, raw-screen fallback messaging, and Open in player / Open project folder actions.
 
 ### Research
 

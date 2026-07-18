@@ -6,6 +6,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Windows.Media.Core;
+using Windows.Storage;
+using Windows.System;
 using SevenRecord.Analysis;
 using SevenRecord.Audio.Windows;
 using SevenRecord.Capture.Abstractions;
@@ -60,6 +63,7 @@ public sealed partial class MainPage : Page, IDisposable
     private TaskCompletionSource? _recordingStartupCompletion;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
+    private string? _currentPreviewPath;
     private TimelineDocument? _currentTimeline;
     private CaptionEditSession? _captionEditSession;
     private Task? _stopCaptureTask;
@@ -516,12 +520,28 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
 
+        await OpenProjectAsync(projectPath);
+    }
+
+    private async void OnOpenProjectButtonClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string projectPath })
+        {
+            await OpenProjectAsync(projectPath);
+        }
+    }
+
+    private async Task OpenProjectAsync(string projectPath)
+    {
         try
         {
             TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(projectPath);
             _currentTimeline = timeline;
             _disabledAutomation.Clear();
             await LoadCaptionEditorAsync(projectPath);
+            LoadProjectPreview(timeline);
             TimelineProjectTitle.Text =
                 $"{FormatProjectDisplayName(Path.GetFileName(projectPath))}  ·  " +
                 $"{timeline.Duration:hh\\:mm\\:ss}";
@@ -584,6 +604,114 @@ public sealed partial class MainPage : Page, IDisposable
         }
 
         UpdateRenderPlanSummary();
+    }
+
+    private void LoadProjectPreview(TimelineDocument timeline)
+    {
+        ProjectPreviewPlayer.Source = null;
+        _currentPreviewPath = null;
+        OpenRecordingExternallyButton.IsEnabled = false;
+        OpenProjectFolderButton.IsEnabled = Directory.Exists(timeline.ProjectPath);
+
+        string exportsDirectory = Path.Combine(
+            timeline.ProjectPath,
+            "exports");
+        string? previewPath = Directory.Exists(exportsDirectory)
+            ? Directory.EnumerateFiles(
+                    exportsDirectory,
+                    "*.mp4",
+                    SearchOption.TopDirectoryOnly)
+                .Select(path => new FileInfo(path))
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .Select(file => file.FullName)
+                .FirstOrDefault()
+            : null;
+        bool isExport = previewPath is not null;
+
+        if (previewPath is null)
+        {
+            TimelineClip? screen = timeline.Clips.FirstOrDefault(
+                clip => clip.Track is TimelineTrackKind.Screen);
+            if (screen is not null)
+            {
+                string candidate = Path.Combine(
+                    timeline.ProjectPath,
+                    screen.SourcePath);
+                if (File.Exists(candidate))
+                {
+                    previewPath = candidate;
+                }
+            }
+        }
+
+        if (previewPath is null)
+        {
+            ProjectPreviewStatusText.Text =
+                "No playable screen or exported MP4 source was found for this project.";
+            return;
+        }
+
+        _currentPreviewPath = previewPath;
+        ProjectPreviewPlayer.Source =
+            MediaSource.CreateFromUri(new Uri(previewPath));
+        OpenRecordingExternallyButton.IsEnabled = true;
+        ProjectPreviewStatusText.Text = isExport
+            ? $"Playing exported recording: {Path.GetFileName(previewPath)}"
+            : "Playing the recorded screen source. Camera and audio remain separate until export.";
+    }
+
+    private async void OnOpenRecordingExternallyClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_currentPreviewPath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            StorageFile file = await StorageFile.GetFileFromPathAsync(
+                _currentPreviewPath);
+            bool opened = await Launcher.LaunchFileAsync(file);
+            if (!opened)
+            {
+                ProjectPreviewStatusText.Text =
+                    "Windows could not open the recording in the default video player.";
+            }
+        }
+        catch (Exception exception)
+        {
+            ProjectPreviewStatusText.Text =
+                $"Recording could not be opened: {exception.Message}";
+        }
+    }
+
+    private async void OnOpenProjectFolderClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_currentTimeline is null)
+        {
+            return;
+        }
+
+        try
+        {
+            StorageFolder folder = await StorageFolder.GetFolderFromPathAsync(
+                _currentTimeline.ProjectPath);
+            bool opened = await Launcher.LaunchFolderAsync(folder);
+            if (!opened)
+            {
+                ProjectPreviewStatusText.Text =
+                    "Windows could not open the project folder.";
+            }
+        }
+        catch (Exception exception)
+        {
+            ProjectPreviewStatusText.Text =
+                $"Project folder could not be opened: {exception.Message}";
+        }
     }
 
     private void OnRenderPresetChanged(object sender, SelectionChangedEventArgs e) =>
@@ -949,6 +1077,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _recordingUiTimer.Stop();
+        ProjectPreviewPlayer.Source = null;
         DisposeGlobalHotKeys();
         await StopCaptureAsync(RecordingStopReason.ApplicationExit);
     }
@@ -1887,7 +2016,7 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private static StackPanel CreateProjectListContent(
+    private StackPanel CreateProjectListContent(
         ProjectSummary project,
         string displayName)
     {
@@ -1924,6 +2053,18 @@ public sealed partial class MainPage : Page, IDisposable
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 TextWrapping = TextWrapping.Wrap,
             });
+        Button openButton = new()
+        {
+            Content = "Open recording",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 4, 0, 0),
+            Tag = project.Path,
+        };
+        AutomationProperties.SetName(
+            openButton,
+            $"Open {displayName}");
+        openButton.Click += OnOpenProjectButtonClicked;
+        content.Children.Add(openButton);
         return content;
     }
 

@@ -112,6 +112,14 @@ function Click-Element {
     [SevenRecordUiQaNative]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 }
 
+function Select-NavigationItem {
+    param([System.Windows.Automation.AutomationElement]$Element)
+
+    $selection = [System.Windows.Automation.SelectionItemPattern]$Element.GetCurrentPattern(
+        [System.Windows.Automation.SelectionItemPattern]::Pattern)
+    $selection.Select()
+}
+
 $process = $null
 try {
     $process = Start-Process -FilePath $appExecutable.FullName -PassThru
@@ -151,13 +159,58 @@ try {
     $recorderNavHeight = $recorderNav.Current.BoundingRectangle.Height
     $projectsNavHeight = $projectsNav.Current.BoundingRectangle.Height
 
-    Click-Element $projectsNav
+    Select-NavigationItem $projectsNav
     $projectsList = Wait-Until -TimeoutSeconds 10 -FailureMessage "Projects workspace did not open." -Condition {
         Find-ById -Root $app -AutomationId "RecentProjectsList"
     }
     Assert-True ($projectsList.Current.Name -eq "Recent recordings") `
         "Projects list has the wrong accessible name."
-    Click-Element $recorderNav
+    $projectPlayback = $false
+    $projectItems = Wait-Until -TimeoutSeconds 15 -FailureMessage "Recent recording items did not load." -Condition {
+        $items = $projectsList.FindAll(
+            [System.Windows.Automation.TreeScope]::Children,
+            [System.Windows.Automation.Condition]::TrueCondition)
+        if ($items.Count -gt 0) { $items }
+    }
+    if ($projectItems.Count -gt 0) {
+        $firstProject = $projectItems.Item(0)
+        $scrollItem = [System.Windows.Automation.ScrollItemPattern]$firstProject.GetCurrentPattern(
+            [System.Windows.Automation.ScrollItemPattern]::Pattern)
+        $scrollItem.ScrollIntoView()
+        $projectElements = $firstProject.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)
+        $openProject = $null
+        for ($index = 0; $index -lt $projectElements.Count; $index++) {
+            $candidate = $projectElements.Item($index)
+            if ($candidate.Current.Name -like "Open Recording*") {
+                $openProject = $candidate
+                break
+            }
+        }
+    } else {
+        $openProject = $null
+    }
+    if ($null -ne $openProject) {
+        $invoke = [System.Windows.Automation.InvokePattern]$openProject.GetCurrentPattern(
+            [System.Windows.Automation.InvokePattern]::Pattern)
+        $invoke.Invoke()
+        $openExternal = Wait-Until -TimeoutSeconds 15 -FailureMessage "Recording preview did not open." -Condition {
+            $candidate = Find-ById -Root $app -AutomationId "OpenRecordingExternallyButton"
+            if ($candidate -and $candidate.Current.IsEnabled) { $candidate }
+        }
+        $playButton = Wait-Until -TimeoutSeconds 15 -FailureMessage "Recording preview transport controls did not load." -Condition {
+            Find-ById -Root $app -AutomationId "PlayPauseButton"
+        }
+        Assert-True ($playButton.Current.IsEnabled) `
+            "Recording preview Play control is disabled."
+        $projectPlayback = $openExternal.Current.IsEnabled
+    }
+    if ($projectItems.Count -gt 0) {
+        Assert-True $projectPlayback `
+            "A recent recording existed but its playback controls did not open."
+    }
+    Select-NavigationItem $recorderNav
     Wait-Until -TimeoutSeconds 10 -FailureMessage "Recorder workspace did not reopen." -Condition {
         Find-ById -Root $app -AutomationId "StartRecordingButton"
     } | Out-Null
@@ -187,6 +240,7 @@ try {
         statusName = $status.Current.Name
         adaptiveStacking = $true
         projectsNavigation = $true
+        projectPlayback = $projectPlayback
     } | ConvertTo-Json
 }
 finally {

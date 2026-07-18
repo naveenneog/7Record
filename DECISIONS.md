@@ -318,3 +318,12 @@ The default workspace is preview-first and exposes one dominant `Record` action.
 Recorder and Projects are separate native `NavigationView` destinations. Projects navigation is disabled during active capture so Stop/Pause and the recording timer remain visible. All recorder states update visible labels, timer/progress feedback, and UI Automation names.
 
 The application uses a coherent dark WinUI theme, magenta only for recording/primary commitment, cyan for selection/focus/automation, semantic status icons, 40–44 DIP practical targets, adaptive stacking below 1100 DIP, and contrast-theme resource overrides.
+
+## D-036: Project recording playback
+
+**Status:** Accepted
+**Date:** 2026-07-18
+
+Selecting `Open recording` loads an inline native `MediaPlayerElement` in the Projects workspace. Playback prefers the latest exported MP4 because it contains the composed camera/audio/edit result; when no export exists, it falls back to the immutable screen source and labels that limitation explicitly.
+
+Projects also expose `Open in player` and `Open project folder` through Windows Launcher APIs. Source media remains local and is never copied or modified for playback.
