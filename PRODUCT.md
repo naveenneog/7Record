@@ -6,13 +6,13 @@ product
 
 ## Platform
 
-web
+windows
 
 ## Users
 
 The primary users are software educators, developer advocates, product marketers, course creators, founders, and vloggers who record applications, websites, demos, tutorials, and narrated walkthroughs. They need to move from recording to a publishable video without manually rebuilding every zoom, cut, caption, and presenter layout.
 
-The first production target is Windows desktop. The interface may use web technology, but recording, media processing, storage, and export must behave as a local desktop product. macOS portability is a later goal rather than an MVP constraint.
+The production target is Windows desktop using WinUI 3. Recording, media processing, storage, and export behave as a local native product. macOS portability is a later goal rather than an MVP constraint.
 
 ## Product Purpose
 

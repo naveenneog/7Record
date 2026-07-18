@@ -307,3 +307,14 @@ Raw source publication and resource disposal define recording stop. Loading dete
 Windows Graphics Capture is change-driven and may emit only one frame for a static application window. The screen recorder therefore keeps the latest image in persistent Direct3D render targets and feeds Media Foundation on a 60 fps project-clock pacer.
 
 Odd source dimensions are padded to the next even width/height through a GPU-only Win2D render target before H.264 encoding. The capture device remains alive until the pacer drains and the encoder completes; capture stop and device disposal are separate phases.
+
+## D-035: Recorder workspace information architecture
+
+**Status:** Accepted
+**Date:** 2026-07-18
+
+The default workspace is preview-first and exposes one dominant `Record` action. Screen, camera, and audio are compact source rows rather than equal dashboard cards. Detailed readiness is progressively disclosed but automatically expands during capture and on warning/error.
+
+Recorder and Projects are separate native `NavigationView` destinations. Projects navigation is disabled during active capture so Stop/Pause and the recording timer remain visible. All recorder states update visible labels, timer/progress feedback, and UI Automation names.
+
+The application uses a coherent dark WinUI theme, magenta only for recording/primary commitment, cyan for selection/focus/automation, semantic status icons, 40–44 DIP practical targets, adaptive stacking below 1100 DIP, and contrast-theme resource overrides.

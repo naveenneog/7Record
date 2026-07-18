@@ -2,23 +2,23 @@
 name: 7Record
 description: A focused recording studio that turns software capture into a creator-ready first edit.
 colors:
-  primary: "oklch(0.470 0.173 354.8)"
-  primary-hover: "oklch(0.420 0.165 354.8)"
-  accent: "oklch(0.720 0.145 210)"
-  background: "oklch(0.075 0 0)"
-  surface: "oklch(0.115 0.008 355)"
-  surface-raised: "oklch(0.155 0.010 355)"
-  ink: "oklch(0.955 0.006 355)"
-  muted: "oklch(0.690 0.012 355)"
-  divider: "oklch(0.260 0.012 355)"
-  success: "oklch(0.720 0.150 150)"
-  warning: "oklch(0.790 0.145 80)"
-  danger: "oklch(0.620 0.210 25)"
+  primary: "oklch(0.535 0.144 352.6)"
+  primary-hover: "oklch(0.559 0.146 351.4)"
+  accent: "oklch(0.745 0.109 209.7)"
+  background: "oklch(0.161 0.003 325.7)"
+  surface: "oklch(0.203 0.005 325.8)"
+  surface-raised: "oklch(0.252 0.007 325.8)"
+  ink: "oklch(0.971 0.005 345.3)"
+  muted: "oklch(0.746 0.012 334.2)"
+  divider: "oklch(0.509 0.013 339.6)"
+  success: "oklch(0.743 0.135 157.6)"
+  warning: "oklch(0.800 0.134 81.4)"
+  danger: "oklch(0.656 0.156 22.3)"
 typography:
   headline:
-    fontFamily: "Aptos Display, Aptos, system-ui, sans-serif"
+    fontFamily: "Aptos, Segoe UI Variable, system-ui, sans-serif"
     fontSize: "28px"
-    fontWeight: 650
+    fontWeight: 600
     lineHeight: 1.15
     letterSpacing: "-0.02em"
   title:
@@ -108,8 +108,7 @@ The palette places a single warm recording cue against a neutral black stage, ba
 
 ## 3. Typography
 
-**Display Font:** Aptos Display (with Aptos and system fallbacks)  
-**Body Font:** Aptos (with system fallbacks)
+**Interface Font:** Aptos (with Segoe UI Variable and system fallbacks)
 
 **Character:** Familiar Windows-native clarity with careful weight and spacing rather than decorative type pairing.
 

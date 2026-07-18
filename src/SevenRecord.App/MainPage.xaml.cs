@@ -1,8 +1,11 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using SevenRecord.Analysis;
 using SevenRecord.Audio.Windows;
 using SevenRecord.Capture.Abstractions;
@@ -35,6 +38,7 @@ public sealed partial class MainPage : Page, IDisposable
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     private readonly RecorderStateMachine _recorderState = new();
+    private readonly DispatcherTimer _recordingUiTimer;
     private readonly object _stopCaptureGate = new();
     private readonly CaptureReadinessService _readinessService = new(
     [
@@ -49,6 +53,7 @@ public sealed partial class MainPage : Page, IDisposable
     private AudioCaptureHealth? _microphoneHealth;
     private AudioCaptureHealth? _systemAudioHealth;
     private bool _cameraEnabled = true;
+    private bool _updatingCameraToggle;
     private GlobalHotKeyService? _globalHotKeys;
     private WindowsRecordingSession? _recordingSession;
     private CancellationTokenSource? _recordingStartupCancellation;
@@ -64,7 +69,232 @@ public sealed partial class MainPage : Page, IDisposable
     public MainPage()
     {
         InitializeComponent();
+        _recordingUiTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _recordingUiTimer.Tick += OnRecordingUiTimerTick;
+        _recorderState.StateChanged += OnRecorderStateChanged;
+        ReadinessInfoBar.RegisterPropertyChangedCallback(
+            InfoBar.TitleProperty,
+            OnRecorderStatusPropertyChanged);
+        ReadinessInfoBar.RegisterPropertyChangedCallback(
+            InfoBar.MessageProperty,
+            OnRecorderStatusPropertyChanged);
+        ReadinessInfoBar.RegisterPropertyChangedCallback(
+            InfoBar.SeverityProperty,
+            OnRecorderStatusPropertyChanged);
+        UpdateRecorderStatusAccessibility();
+        ApplyRecorderVisualState(_recorderState.Snapshot);
     }
+
+    private void OnRecorderStatusPropertyChanged(
+        DependencyObject sender,
+        DependencyProperty property) =>
+        UpdateRecorderStatusAccessibility();
+
+    private void UpdateRecorderStatusAccessibility()
+    {
+        AutomationProperties.SetName(
+            ReadinessInfoBar,
+            $"{ReadinessInfoBar.Title}. {ReadinessInfoBar.Message}");
+        RecordingHealthIcon.Foreground = ReadinessInfoBar.Severity switch
+        {
+            InfoBarSeverity.Success => ResourceBrush("SuccessBrush"),
+            InfoBarSeverity.Warning => ResourceBrush("WarningBrush"),
+            InfoBarSeverity.Error => ResourceBrush("DangerBrush"),
+            _ => ResourceBrush("StudioMutedBrush"),
+        };
+        if (ReadinessInfoBar.Severity is
+            InfoBarSeverity.Warning or InfoBarSeverity.Error)
+        {
+            RecordingHealthExpander.IsExpanded = true;
+        }
+    }
+
+    private void OnRecorderStateChanged(RecorderSnapshot snapshot)
+    {
+        if (DispatcherQueue.HasThreadAccess)
+        {
+            ApplyRecorderVisualState(snapshot);
+            return;
+        }
+
+        DispatcherQueue.TryEnqueue(() =>
+            ApplyRecorderVisualState(snapshot));
+    }
+
+    private void OnRecordingUiTimerTick(
+        object? sender,
+        object e) =>
+        UpdateRecordingElapsedText();
+
+    private void ApplyRecorderVisualState(RecorderSnapshot snapshot)
+    {
+        Brush recordBrush = ResourceBrush("RecordBrush");
+        Brush warningBrush = ResourceBrush("WarningBrush");
+        switch (snapshot.State)
+        {
+            case RecorderState.Starting:
+                ProjectsNavigationItem.IsEnabled = false;
+                RecordingHealthExpander.IsExpanded = true;
+                _recordingUiTimer.Stop();
+                RecordingStatusPill.Visibility = Visibility.Visible;
+                RecordingStateDot.Fill = recordBrush;
+                RecordingStateText.Text = "Starting";
+                RecordingElapsedText.Text = "00:00";
+                RecordingProgressRing.IsActive = true;
+                RecordingProgressRing.Visibility = Visibility.Visible;
+                PauseRecordingButton.Visibility = Visibility.Collapsed;
+                StartRecordingButton.Content = "Cancel";
+                StartRecordingButton.IsEnabled = true;
+                AutomationProperties.SetName(
+                    StartRecordingButton,
+                    "Cancel recording startup");
+                PreviewStateText.Text = "Preparing capture";
+                PreviewHintText.Text =
+                    "Starting the selected screen, camera, and available audio sources.";
+                ChooseSourceButton.IsEnabled = false;
+                ConfigureCameraButton.IsEnabled = false;
+                break;
+
+            case RecorderState.Recording:
+                ProjectsNavigationItem.IsEnabled = false;
+                RecordingHealthExpander.IsExpanded = true;
+                RecordingStatusPill.Visibility = Visibility.Visible;
+                RecordingStateDot.Fill = recordBrush;
+                RecordingStateText.Text = "Recording";
+                RecordingProgressRing.IsActive = false;
+                RecordingProgressRing.Visibility = Visibility.Collapsed;
+                PauseRecordingButton.Content = "Pause";
+                PauseRecordingButton.IsEnabled = true;
+                PauseRecordingButton.Visibility = Visibility.Visible;
+                AutomationProperties.SetName(
+                    PauseRecordingButton,
+                    "Pause recording");
+                StartRecordingButton.Content = "Stop";
+                StartRecordingButton.IsEnabled = true;
+                AutomationProperties.SetName(
+                    StartRecordingButton,
+                    "Stop recording");
+                PreviewStateText.Text = "Recording in progress";
+                PreviewHintText.Text =
+                    "7Record is capturing the selected source into recoverable local segments.";
+                ChooseSourceButton.IsEnabled = false;
+                ConfigureCameraButton.IsEnabled = false;
+                _recordingUiTimer.Start();
+                UpdateRecordingElapsedText();
+                break;
+
+            case RecorderState.Paused:
+                ProjectsNavigationItem.IsEnabled = false;
+                RecordingHealthExpander.IsExpanded = true;
+                RecordingStatusPill.Visibility = Visibility.Visible;
+                RecordingStateDot.Fill = warningBrush;
+                RecordingStateText.Text = "Paused";
+                RecordingProgressRing.IsActive = false;
+                RecordingProgressRing.Visibility = Visibility.Collapsed;
+                PauseRecordingButton.Content = "Resume";
+                PauseRecordingButton.IsEnabled = true;
+                PauseRecordingButton.Visibility = Visibility.Visible;
+                AutomationProperties.SetName(
+                    PauseRecordingButton,
+                    "Resume recording");
+                StartRecordingButton.Content = "Stop";
+                StartRecordingButton.IsEnabled = true;
+                AutomationProperties.SetName(
+                    StartRecordingButton,
+                    "Stop recording");
+                PreviewStateText.Text = "Recording paused";
+                PreviewHintText.Text =
+                    "Screen, camera, cursor, and audio samples are paused without adding a timeline gap.";
+                ChooseSourceButton.IsEnabled = false;
+                ConfigureCameraButton.IsEnabled = false;
+                UpdateRecordingElapsedText();
+                break;
+
+            case RecorderState.Stopping:
+                ProjectsNavigationItem.IsEnabled = false;
+                RecordingHealthExpander.IsExpanded = true;
+                _recordingUiTimer.Stop();
+                RecordingStatusPill.Visibility = Visibility.Visible;
+                RecordingStateDot.Fill = warningBrush;
+                RecordingStateText.Text = "Saving";
+                RecordingProgressRing.IsActive = true;
+                RecordingProgressRing.Visibility = Visibility.Visible;
+                PauseRecordingButton.IsEnabled = false;
+                PauseRecordingButton.Visibility = Visibility.Collapsed;
+                StartRecordingButton.Content = "Finishing…";
+                StartRecordingButton.IsEnabled = false;
+                AutomationProperties.SetName(
+                    StartRecordingButton,
+                    "Finishing recording");
+                PreviewStateText.Text = "Saving recording";
+                PreviewHintText.Text =
+                    "Finalizing recoverable source files and preparing the first edit.";
+                ChooseSourceButton.IsEnabled = false;
+                ConfigureCameraButton.IsEnabled = false;
+                break;
+
+            case RecorderState.Faulted:
+                ProjectsNavigationItem.IsEnabled = true;
+                _recordingUiTimer.Stop();
+                RecordingStatusPill.Visibility = Visibility.Collapsed;
+                RecordingProgressRing.IsActive = false;
+                RecordingProgressRing.Visibility = Visibility.Collapsed;
+                PauseRecordingButton.IsEnabled = false;
+                PauseRecordingButton.Visibility = Visibility.Collapsed;
+                StartRecordingButton.Content = "Record";
+                StartRecordingButton.IsEnabled =
+                    _lastSnapshot?.CanRecord is true;
+                AutomationProperties.SetName(
+                    StartRecordingButton,
+                    "Start recording");
+                PreviewStateText.Text = "Recording needs attention";
+                PreviewHintText.Text =
+                    snapshot.Failure ?? "Review the recorder status and try again.";
+                ChooseSourceButton.IsEnabled = true;
+                ConfigureCameraButton.IsEnabled =
+                    CameraOverlayToggle.IsEnabled;
+                break;
+
+            default:
+                ProjectsNavigationItem.IsEnabled = true;
+                _recordingUiTimer.Stop();
+                RecordingStatusPill.Visibility = Visibility.Collapsed;
+                RecordingProgressRing.IsActive = false;
+                RecordingProgressRing.Visibility = Visibility.Collapsed;
+                PauseRecordingButton.Content = "Pause";
+                PauseRecordingButton.IsEnabled = false;
+                PauseRecordingButton.Visibility = Visibility.Collapsed;
+                StartRecordingButton.Content = "Record";
+                StartRecordingButton.IsEnabled =
+                    _lastSnapshot?.CanRecord is true;
+                AutomationProperties.SetName(
+                    StartRecordingButton,
+                    "Start recording");
+                PreviewStateText.Text = "Ready to record";
+                PreviewHintText.Text = _selectedScreen is null
+                    ? "Choose an application or display, or press Record to select one and start."
+                    : "Press Record to capture the selected source; available camera and audio are included automatically.";
+                ChooseSourceButton.IsEnabled = true;
+                ConfigureCameraButton.IsEnabled =
+                    CameraOverlayToggle.IsEnabled;
+                RecordingElapsedText.Text = "00:00";
+                break;
+        }
+    }
+
+    private void UpdateRecordingElapsedText()
+    {
+        TimeSpan elapsed = _recordingSession?.ActiveDuration ?? TimeSpan.Zero;
+        RecordingElapsedText.Text = elapsed.TotalHours >= 1
+            ? elapsed.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture)
+            : elapsed.ToString(@"mm\:ss", CultureInfo.InvariantCulture);
+    }
+
+    private static Brush ResourceBrush(string key) =>
+        (Brush)Application.Current.Resources[key];
 
     private async void OnConfigureCameraClicked(object sender, RoutedEventArgs e)
     {
@@ -98,20 +328,88 @@ public sealed partial class MainPage : Page, IDisposable
                 Directory.Delete(probeRoot, recursive: true);
             }
 
-            ConfigureCameraButton.IsEnabled = true;
+            ConfigureCameraButton.IsEnabled =
+                _recordingSession is null &&
+                (_recorderState.Snapshot.State is
+                    RecorderState.Idle or RecorderState.Faulted) &&
+                CameraOverlayToggle.IsEnabled;
         }
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        ApplyAdaptiveLayout(ActualWidth);
         await TrySelectPrimaryDisplayAsync();
         await RefreshReadinessAsync();
         await RefreshProjectsAsync();
         RegisterGlobalHotKeys();
     }
 
+    private void OnPageSizeChanged(
+        object sender,
+        SizeChangedEventArgs e) =>
+        ApplyAdaptiveLayout(e.NewSize.Width);
+
+    private void ApplyAdaptiveLayout(double width)
+    {
+        bool narrow = width < 1100;
+        if (narrow)
+        {
+            Grid.SetRow(HeaderCommandPanel, 1);
+            Grid.SetColumn(HeaderCommandPanel, 0);
+            HeaderCommandPanel.HorizontalAlignment = HorizontalAlignment.Left;
+            Grid.SetColumnSpan(HeaderTextPanel, 2);
+            Grid.SetRow(SetupRail, 1);
+            Grid.SetColumn(SetupRail, 0);
+            Grid.SetColumnSpan(SetupRail, 2);
+            Grid.SetColumnSpan(PreviewStage, 2);
+            RecorderRailColumn.Width = new GridLength(0);
+            RecorderContentGrid.Padding = new Thickness(20, 16, 20, 24);
+            PreviewStage.MinHeight = 420;
+
+            Grid.SetRow(TimelineSection, 1);
+            Grid.SetColumn(TimelineSection, 0);
+            Grid.SetColumnSpan(TimelineSection, 2);
+            Grid.SetRow(ProjectDetailEmptyState, 1);
+            Grid.SetColumn(ProjectDetailEmptyState, 0);
+            Grid.SetColumnSpan(ProjectDetailEmptyState, 2);
+            Grid.SetColumnSpan(ProjectsSection, 2);
+            ProjectsListColumn.Width = new GridLength(1, GridUnitType.Star);
+            ProjectDetailColumn.Width = new GridLength(0);
+        }
+        else
+        {
+            Grid.SetRow(HeaderCommandPanel, 0);
+            Grid.SetColumn(HeaderCommandPanel, 1);
+            HeaderCommandPanel.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetColumnSpan(HeaderTextPanel, 1);
+            Grid.SetRow(SetupRail, 0);
+            Grid.SetColumn(SetupRail, 1);
+            Grid.SetColumnSpan(SetupRail, 1);
+            Grid.SetColumnSpan(PreviewStage, 1);
+            RecorderRailColumn.Width = new GridLength(360);
+            RecorderContentGrid.Padding = new Thickness(32, 20, 32, 32);
+            PreviewStage.MinHeight = 500;
+
+            Grid.SetRow(TimelineSection, 0);
+            Grid.SetColumn(TimelineSection, 1);
+            Grid.SetColumnSpan(TimelineSection, 1);
+            Grid.SetRow(ProjectDetailEmptyState, 0);
+            Grid.SetColumn(ProjectDetailEmptyState, 1);
+            Grid.SetColumnSpan(ProjectDetailEmptyState, 1);
+            Grid.SetColumnSpan(ProjectsSection, 1);
+            ProjectsListColumn.Width = new GridLength(380);
+            ProjectDetailColumn.Width = new GridLength(1, GridUnitType.Star);
+        }
+    }
+
     private void OnCameraOverlayToggled(object sender, RoutedEventArgs e)
     {
+        if (_updatingCameraToggle)
+        {
+            return;
+        }
+
         _cameraEnabled = CameraOverlayToggle.IsOn;
         CameraStatusText.Text = _cameraEnabled
             ? "The default camera will start automatically with recording."
@@ -158,8 +456,53 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private void OnProjectsClicked(object sender, RoutedEventArgs e) =>
-        ProjectsSection.StartBringIntoView();
+    private void OnProjectsClicked(object sender, RoutedEventArgs e)
+    {
+        ProjectsNavigationItem.IsSelected = true;
+        ShowProjectsView();
+    }
+
+    private void OnNavigationSelectionChanged(
+        NavigationView sender,
+        NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.SelectedItemContainer is not NavigationViewItem item)
+        {
+            return;
+        }
+
+        if (string.Equals(
+                item.Tag as string,
+                "projects",
+                StringComparison.Ordinal))
+        {
+            ShowProjectsView();
+        }
+        else
+        {
+            ShowRecorderView();
+        }
+    }
+
+    private void ShowRecorderView()
+    {
+        RecorderView.Visibility = Visibility.Visible;
+        ProjectsView.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowProjectsView()
+    {
+        if (_recorderState.Snapshot.IsActive)
+        {
+            RecorderNavigationItem.IsSelected = true;
+            ShowRecorderView();
+            return;
+        }
+
+        RecorderView.Visibility = Visibility.Collapsed;
+        ProjectsView.Visibility = Visibility.Visible;
+        _ = RefreshProjectsAsync();
+    }
 
     private async void OnRefreshProjectsClicked(object sender, RoutedEventArgs e)
     {
@@ -180,7 +523,8 @@ public sealed partial class MainPage : Page, IDisposable
             _disabledAutomation.Clear();
             await LoadCaptionEditorAsync(projectPath);
             TimelineProjectTitle.Text =
-                $"{Path.GetFileName(projectPath)}  |  {timeline.Duration:hh\\:mm\\:ss}";
+                $"{FormatProjectDisplayName(Path.GetFileName(projectPath))}  ·  " +
+                $"{timeline.Duration:hh\\:mm\\:ss}";
             TimelineItemsList.Items.Clear();
             foreach (TimelineClip clip in timeline.Clips)
             {
@@ -211,12 +555,14 @@ public sealed partial class MainPage : Page, IDisposable
             }
 
             UpdateRenderPlanSummary();
+            ProjectDetailEmptyState.Visibility = Visibility.Collapsed;
             TimelineSection.Visibility = Visibility.Visible;
             TimelineSection.StartBringIntoView();
         }
         catch (Exception exception)
         {
             TimelineProjectTitle.Text = $"Timeline could not be loaded: {exception.Message}";
+            ProjectDetailEmptyState.Visibility = Visibility.Collapsed;
             TimelineSection.Visibility = Visibility.Visible;
         }
     }
@@ -250,8 +596,21 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
 
-        _ = await SaveRenderPlanAsync();
-        RenderPlanSummaryText.Text += " Saved to render-plan.json.";
+        SaveRenderPlanButton.IsEnabled = false;
+        try
+        {
+            _ = await SaveRenderPlanAsync();
+            RenderPlanSummaryText.Text += " Saved to render-plan.json.";
+        }
+        catch (Exception exception)
+        {
+            RenderPlanSummaryText.Text =
+                $"Render plan could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            SaveRenderPlanButton.IsEnabled = true;
+        }
     }
 
     private async void OnExportMp4Clicked(object sender, RoutedEventArgs e)
@@ -284,6 +643,11 @@ public sealed partial class MainPage : Page, IDisposable
             RenderPlanSummaryText.Text = result.Succeeded
                 ? $"Export complete: {result.OutputPath}"
                 : $"Export failed: {result.Error}";
+        }
+        catch (Exception exception)
+        {
+            RenderPlanSummaryText.Text =
+                $"Export failed: {exception.Message}";
         }
         finally
         {
@@ -416,7 +780,15 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_captionEditSession?.Undo() is true)
         {
-            await PersistCaptionEditsAsync();
+            try
+            {
+                await PersistCaptionEditsAsync();
+            }
+            catch (Exception exception)
+            {
+                RenderPlanSummaryText.Text =
+                    $"Caption undo failed: {exception.Message}";
+            }
         }
     }
 
@@ -424,7 +796,15 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_captionEditSession?.Redo() is true)
         {
-            await PersistCaptionEditsAsync();
+            try
+            {
+                await PersistCaptionEditsAsync();
+            }
+            catch (Exception exception)
+            {
+                RenderPlanSummaryText.Text =
+                    $"Caption redo failed: {exception.Message}";
+            }
         }
     }
 
@@ -568,12 +948,16 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _recordingUiTimer.Stop();
         DisposeGlobalHotKeys();
         await StopCaptureAsync(RecordingStopReason.ApplicationExit);
     }
 
     public void Dispose()
     {
+        _recordingUiTimer.Stop();
+        _recordingUiTimer.Tick -= OnRecordingUiTimerTick;
+        _recorderState.StateChanged -= OnRecorderStateChanged;
         DisposeGlobalHotKeys();
         GC.SuppressFinalize(this);
     }
@@ -773,6 +1157,8 @@ public sealed partial class MainPage : Page, IDisposable
             _selectedScreen = target;
             ScreenStatusText.Text =
                 $"Primary display: {target.DisplayName} ({target.Width} x {target.Height})";
+            PreviewSourceText.Text =
+                $"{target.DisplayName} · {target.Width} × {target.Height}";
             return true;
         }
         catch (Exception exception) when (
@@ -819,6 +1205,8 @@ public sealed partial class MainPage : Page, IDisposable
             _selectedScreen = target;
             ScreenStatusText.Text =
                 $"{target.DisplayName} ({target.Width} x {target.Height})";
+            PreviewSourceText.Text =
+                $"{target.DisplayName} · {target.Width} × {target.Height}";
             UpdateReadinessSummary();
             return true;
         }
@@ -845,23 +1233,56 @@ public sealed partial class MainPage : Page, IDisposable
             CaptureReadinessSnapshot snapshot = await _readinessService.CheckAsync();
             _lastSnapshot = snapshot;
 
+            CaptureReadinessItem screen =
+                snapshot.Items.Single(item => item.Key == "screen");
+            CaptureReadinessItem graphics =
+                snapshot.Items.Single(item => item.Key == "graphics-device");
             if (_selectedScreen is null)
             {
-                CaptureReadinessItem screen =
-                    snapshot.Items.Single(item => item.Key == "screen");
-                CaptureReadinessItem graphics =
-                    snapshot.Items.Single(item => item.Key == "graphics-device");
                 ScreenStatusText.Text = $"{screen.Message} {graphics.Message}";
             }
+            SetStatusIcon(
+                ScreenSourceIcon,
+                WorstState(screen.State, graphics.State));
 
-            ApplyStatus(CameraStatusText, snapshot.Items.Single(item => item.Key == "camera"));
+            CaptureReadinessItem camera =
+                snapshot.Items.Single(item => item.Key == "camera");
+            bool cameraAvailable = camera.State is
+                CaptureSourceState.Ready or CaptureSourceState.Warning;
+            _updatingCameraToggle = true;
+            try
+            {
+                CameraOverlayToggle.IsEnabled =
+                    cameraAvailable && _recordingSession is null;
+                ConfigureCameraButton.IsEnabled =
+                    cameraAvailable && _recordingSession is null;
+                if (!cameraAvailable)
+                {
+                    CameraOverlayToggle.IsOn = false;
+                    _cameraEnabled = false;
+                }
+            }
+            finally
+            {
+                _updatingCameraToggle = false;
+            }
+            ApplyStatus(CameraStatusText, camera, CameraSourceIcon);
 
             CaptureReadinessItem microphone = snapshot.Items.Single(item => item.Key == "microphone");
             CaptureReadinessItem systemAudio = snapshot.Items.Single(item => item.Key == "system-audio");
             AudioStatusText.Text = $"{microphone.Message} {systemAudio.Message}";
+            SetStatusIcon(
+                AudioSourceIcon,
+                WorstState(microphone.State, systemAudio.State));
 
-            ApplyStatus(StorageStatusText, snapshot.Items.Single(item => item.Key == "storage"));
-            ApplyStatus(EncoderStatusText, snapshot.Items.Single(item => item.Key == "encoder"));
+            ApplyStatus(
+                StorageStatusText,
+                snapshot.Items.Single(item => item.Key == "storage"),
+                StorageStatusIcon);
+            ApplyStatus(
+                EncoderStatusText,
+                snapshot.Items.Single(item => item.Key == "encoder"),
+                EncoderStatusIcon);
 
             UpdateReadinessSummary();
         }
@@ -879,9 +1300,46 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private static void ApplyStatus(TextBlock textBlock, CaptureReadinessItem item)
+    private static void ApplyStatus(
+        TextBlock textBlock,
+        CaptureReadinessItem item,
+        FontIcon? icon = null)
     {
         textBlock.Text = item.Message;
+        if (icon is not null)
+        {
+            SetStatusIcon(icon, item.State);
+        }
+    }
+
+    private static CaptureSourceState WorstState(
+        CaptureSourceState first,
+        CaptureSourceState second) =>
+        StateSeverity(first) >= StateSeverity(second)
+            ? first
+            : second;
+
+    private static int StateSeverity(CaptureSourceState state) =>
+        state switch
+        {
+            CaptureSourceState.Error => 3,
+            CaptureSourceState.Unavailable => 3,
+            CaptureSourceState.Warning => 2,
+            _ => 1,
+        };
+
+    private static void SetStatusIcon(
+        FontIcon icon,
+        CaptureSourceState state)
+    {
+        icon.Foreground = state switch
+        {
+            CaptureSourceState.Ready => ResourceBrush("SuccessBrush"),
+            CaptureSourceState.Warning => ResourceBrush("WarningBrush"),
+            CaptureSourceState.Error or CaptureSourceState.Unavailable =>
+                ResourceBrush("DangerBrush"),
+            _ => ResourceBrush("StudioMutedBrush"),
+        };
     }
 
     private void UpdateReadinessSummary()
@@ -920,9 +1378,15 @@ public sealed partial class MainPage : Page, IDisposable
         }
 
         ReadinessInfoBar.Title = "Ready to record";
-        ReadinessInfoBar.Message = _cameraEnabled
-            ? "Press Record for the selected source with the default camera overlay and accelerated encoding."
-            : "Press Record for the selected source with accelerated encoding.";
+        CaptureReadinessItem camera = _lastSnapshot.Items
+            .Single(item => item.Key == "camera");
+        bool includeCamera =
+            _cameraEnabled &&
+            camera.State is (
+                CaptureSourceState.Ready or CaptureSourceState.Warning);
+        ReadinessInfoBar.Message = includeCamera
+            ? "Press Record for the selected source with camera and available audio."
+            : "Press Record for the selected source. Unavailable optional sources will be skipped.";
         ReadinessInfoBar.Severity = InfoBarSeverity.Success;
     }
 
@@ -1389,26 +1853,95 @@ public sealed partial class MainPage : Page, IDisposable
             RecentProjectsList.Items.Clear();
             foreach (ProjectSummary project in projects)
             {
-                RecentProjectsList.Items.Add(
-                    new ListViewItem
-                    {
-                        Content =
-                            $"{project.RecoveryState}  |  {project.Name}  |  " +
-                            $"{project.Duration:hh\\:mm\\:ss}  |  " +
-                            $"{project.MediaSegments} source(s){Environment.NewLine}" +
-                            project.StatusMessage,
-                        Tag = project.Path,
-                    });
+                string displayName =
+                    FormatProjectDisplayName(project.Name);
+                ListViewItem item = new()
+                {
+                    Content = CreateProjectListContent(
+                        project,
+                        displayName),
+                    Tag = project.Path,
+                };
+                AutomationProperties.SetName(
+                    item,
+                    $"{displayName}, {project.RecoveryState}, " +
+                    $"{project.Duration:hh\\:mm\\:ss}, " +
+                    $"{project.MediaSegments} sources");
+                RecentProjectsList.Items.Add(item);
             }
 
             ProjectsEmptyText.Visibility = projects.Count == 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }
+        catch (Exception exception)
+        {
+            RecentProjectsList.Items.Clear();
+            ProjectsEmptyText.Text =
+                $"Projects could not be loaded. {exception.Message}";
+            ProjectsEmptyText.Visibility = Visibility.Visible;
+        }
         finally
         {
             RefreshProjectsButton.IsEnabled = true;
         }
+    }
+
+    private static StackPanel CreateProjectListContent(
+        ProjectSummary project,
+        string displayName)
+    {
+        StackPanel content = new()
+        {
+            Padding = new Thickness(4, 8, 4, 8),
+            Spacing = 4,
+        };
+        content.Children.Add(
+            new TextBlock
+            {
+                FontSize = 16,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = ResourceBrush("StudioInkBrush"),
+                Text = displayName,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+        content.Children.Add(
+            new TextBlock
+            {
+                FontSize = 13,
+                Foreground = ResourceBrush("StudioMutedBrush"),
+                Text =
+                    $"{project.RecoveryState} · {project.Duration:hh\\:mm\\:ss} · " +
+                    $"{project.MediaSegments} source(s)",
+            });
+        content.Children.Add(
+            new TextBlock
+            {
+                FontSize = 13,
+                Foreground = ResourceBrush("StudioMutedBrush"),
+                MaxLines = 2,
+                Text = project.StatusMessage,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.Wrap,
+            });
+        return content;
+    }
+
+    private static string FormatProjectDisplayName(string name)
+    {
+        const string TimestampFormat = "yyyyMMdd-HHmmss";
+        if (name.Length >= TimestampFormat.Length &&
+            DateTime.TryParseExact(
+                name[..TimestampFormat.Length],
+                TimestampFormat,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal,
+                out DateTime timestamp))
+        {
+            return $"Recording · {timestamp:MMM d, yyyy} · {timestamp:h:mm tt}";
+        }
+
+        return name;
     }
 
     private static async Task<int> SaveAudioRepairPlanAsync(

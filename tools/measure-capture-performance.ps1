@@ -225,11 +225,11 @@ try {
     }
 
     $app = [System.Windows.Automation.AutomationElement]::FromHandle($appProcess.MainWindowHandle)
-    $refreshReadiness = Find-DescendantByAutomationId `
+    $startRecording = Find-DescendantByAutomationId `
         -Root $app `
-        -AutomationId "RefreshReadinessButton"
+        -AutomationId "StartRecordingButton"
     Wait-Until -TimeoutSeconds 30 -FailureMessage "7Record readiness checks did not finish." -Condition {
-        $refreshReadiness.Current.IsEnabled
+        $startRecording.Current.IsEnabled
     } | Out-Null
     Close-CapturePickers
     [SevenRecordNativeMouse]::ShowWindow(
@@ -289,7 +289,6 @@ try {
         } | Out-Null
     }
 
-    $startRecording = Find-DescendantByAutomationId -Root $app -AutomationId "StartRecordingButton"
     try {
         Wait-Until -TimeoutSeconds 20 -FailureMessage "Recording button did not become ready." -Condition {
             $startRecording.Current.IsEnabled
@@ -320,7 +319,20 @@ try {
         Start-Sleep -Seconds 1
     }
     Click-Element $startRecording
-    $frameStatus = Find-DescendantByAutomationId -Root $app -AutomationId "FrameStatusText"
+    $recordingHealth = Find-DescendantByAutomationId `
+        -Root $app `
+        -AutomationId "RecordingHealthExpander"
+    if ($recordingHealth) {
+        $expandPattern = [System.Windows.Automation.ExpandCollapsePattern]$recordingHealth.GetCurrentPattern(
+            [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+        if ($expandPattern.Current.ExpandCollapseState -eq
+            [System.Windows.Automation.ExpandCollapseState]::Collapsed) {
+            $expandPattern.Expand()
+        }
+    }
+    $frameStatus = Wait-Until -TimeoutSeconds 10 -FailureMessage "Recording frame status did not become available." -Condition {
+        Find-DescendantByAutomationId -Root $app -AutomationId "FrameStatusText"
+    }
 
     Wait-Until -TimeoutSeconds 45 -FailureMessage "Capture did not deliver a first frame." -Condition {
         $frameStatus.Current.Name -match "^\d[\d,]* frames"
@@ -365,7 +377,7 @@ try {
 
     Click-Element $startRecording
     Wait-Until -TimeoutSeconds 60 -FailureMessage "Segment did not finalize." -Condition {
-        $frameStatus.Current.Name -match "^(Saved|Segment finalization failed)"
+        $startRecording.Current.Name -eq "Start recording"
     } | Out-Null
     $statusAfterStop = $frameStatus.Current.Name
 
@@ -397,7 +409,7 @@ try {
         throw "No benchmark project was created."
     }
 
-    $segment = Get-ChildItem (Join-Path $project.FullName "segments") -Recurse -File |
+    $segment = Get-ChildItem (Join-Path $project.FullName "segments\screen") -Recurse -File |
         Where-Object Extension -in @(".mkv", ".mp4") |
         Select-Object -First 1
     if (-not $segment) {

@@ -68,6 +68,11 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Updated the capture performance harness to launch the verified executable directly and use reliable coordinate-click fallbacks for WinUI controls.
 - Added a shared gated start/stop boundary and frozen active duration; a 5.87-second journal aligned with screen/microphone/system media at 5.78/5.80/5.82 seconds.
 - Preserved terminal screen-processing failures in finalization results and kept the Direct3D capture device alive until the GPU pacer and encoder drain.
+- Rebuilt the WinUI recorder as a preview-first native workspace with real `NavigationView` destinations, one magenta Record action, state pill/timer/progress feedback, compact source rows, progressive health, and adaptive 1024×720 stacking.
+- Added dynamic Record/Stop/Cancel and Pause/Resume automation names, dynamic status live-region naming, high-contrast resources, Win32 title-bar contrast colors, 40–44 DIP targets, and human-readable project names.
+- Fixed redirected-camera frame processing by replacing cross-device Win2D drawing (`D2DERR_WRONG_RESOURCE_DOMAIN`) with `VideoFrame.CopyToAsync`; camera probe and camera-on full recording now pass.
+- Added `tools/test-recorder-ui.ps1` and updated the capture performance harness for the redesigned progressive-disclosure UI.
+- Logged baseline, post-redesign, corrective actions, QA evidence, and residual release risks in `docs/qa/recorder-ui-ux-qa-2026-07-18.md`.
 
 ### Research
 

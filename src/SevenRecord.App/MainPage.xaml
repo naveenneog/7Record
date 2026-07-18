@@ -8,407 +8,731 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Background="{StaticResource StudioBackgroundBrush}"
     Loaded="OnLoaded"
+    RequestedTheme="Dark"
+    SizeChanged="OnPageSizeChanged"
     Unloaded="OnUnloaded"
     mc:Ignorable="d">
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="64" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="224" />
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
 
-        <Border
-            Grid.ColumnSpan="2"
-            Padding="24,0"
-            Background="{StaticResource StudioSurfaceBrush}"
-            BorderBrush="{StaticResource StudioDividerBrush}"
-            BorderThickness="0,0,0,1">
-            <Grid>
-                <StackPanel
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Center"
-                    Orientation="Horizontal"
-                    Spacing="10">
-                    <Ellipse
-                        Width="12"
-                        Height="12"
-                        Fill="{StaticResource RecordBrush}" />
-                    <TextBlock
-                        FontFamily="{StaticResource DisplayFont}"
-                        FontSize="19"
-                        FontWeight="SemiBold"
-                        Foreground="{StaticResource StudioInkBrush}"
-                        Text="7Record" />
-                </StackPanel>
-                <Button
-                    x:Name="StartRecordingButton"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Center"
-                    AutomationProperties.Name="Start recording"
-                    Click="OnStartRecordingClicked"
-                    Content="Record"
-                    IsEnabled="False"
-                    Style="{StaticResource AccentButtonStyle}"
-                    ToolTipService.ToolTip="Global shortcut: Ctrl+Shift+R" />
-                <Button
-                    x:Name="PauseRecordingButton"
-                    Margin="0,0,150,0"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Center"
-                    Click="OnPauseRecordingClicked"
-                    Content="Pause"
-                    IsEnabled="False"
-                    ToolTipService.ToolTip="Global shortcut: Ctrl+Shift+P" />
-            </Grid>
-        </Border>
+    <NavigationView
+        x:Name="WorkspaceNavigation"
+        AlwaysShowHeader="False"
+        AutomationProperties.Name="7Record workspace navigation"
+        CompactModeThresholdWidth="1040"
+        CompactPaneLength="52"
+        ExpandedModeThresholdWidth="1260"
+        IsBackButtonVisible="Collapsed"
+        IsSettingsVisible="False"
+        OpenPaneLength="200"
+        PaneDisplayMode="Auto"
+        PaneTitle="7Record"
+        SelectionChanged="OnNavigationSelectionChanged">
+        <NavigationView.Resources>
+            <x:Double x:Key="NavigationViewItemOnLeftMinHeight">40</x:Double>
+        </NavigationView.Resources>
+        <NavigationView.MenuItems>
+            <NavigationViewItem
+                x:Name="RecorderNavigationItem"
+                AutomationProperties.Name="Recorder"
+                Content="Recorder"
+                IsSelected="True"
+                MinHeight="40"
+                Tag="recorder">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE714;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem
+                x:Name="ProjectsNavigationItem"
+                AutomationProperties.Name="Projects"
+                Content="Projects"
+                MinHeight="40"
+                Tag="projects">
+                <NavigationViewItem.Icon>
+                    <FontIcon Glyph="&#xE8F1;" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.MenuItems>
 
-        <Border
-            Grid.Row="1"
-            Padding="16,24"
-            Background="{StaticResource StudioSurfaceBrush}"
-            BorderBrush="{StaticResource StudioDividerBrush}"
-            BorderThickness="0,0,1,0">
-            <StackPanel Spacing="8">
-                <Button
-                    HorizontalContentAlignment="Left"
-                    AutomationProperties.Name="Open recorder"
-                    Content="Recorder"
-                    Style="{StaticResource DefaultButtonStyle}" />
-                <Button
-                    x:Name="ProjectsNavigationButton"
-                    HorizontalContentAlignment="Left"
-                    AutomationProperties.Name="Open projects"
-                    Click="OnProjectsClicked"
-                    Content="Projects"
-                    Style="{StaticResource DefaultButtonStyle}" />
-                <Button
-                    HorizontalContentAlignment="Left"
-                    AutomationProperties.Name="Open settings"
-                    Content="Settings"
-                    Style="{StaticResource DefaultButtonStyle}" />
-            </StackPanel>
-        </Border>
+        <Grid Background="{StaticResource StudioBackgroundBrush}">
+            <Grid x:Name="RecorderView">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-        <ScrollViewer
-            x:Name="ContentScrollViewer"
-            Grid.Row="1"
-            Grid.Column="1"
-            HorizontalScrollMode="Disabled"
-            VerticalScrollBarVisibility="Auto">
-            <StackPanel
-                MaxWidth="1120"
-                Padding="40,36,40,56"
-                HorizontalAlignment="Stretch"
-                Spacing="28">
-                <StackPanel Spacing="8">
-                    <TextBlock Style="{StaticResource PageTitleStyle}" Text="Record now" />
-                    <TextBlock
-                        MaxWidth="720"
-                        HorizontalAlignment="Left"
-                        Style="{StaticResource BodyTextStyle}"
-                        Text="Press Record to capture the primary display, default camera, microphone, and system audio. Use Choose application or display only when you want a different source."
-                        TextWrapping="Wrap" />
-                </StackPanel>
+                <Border
+                    Padding="32,22,32,18"
+                    Background="{StaticResource StudioBackgroundBrush}"
+                    BorderBrush="{StaticResource StudioDividerBrush}"
+                    BorderThickness="0,0,0,1">
+                    <Grid x:Name="RecorderHeaderGrid" ColumnSpacing="20" RowSpacing="14">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
 
-                <Grid ColumnSpacing="16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                    <Border
-                        Padding="20"
-                        Background="{StaticResource StudioSurfaceBrush}"
-                        BorderBrush="{StaticResource StudioDividerBrush}"
-                        BorderThickness="1"
-                        CornerRadius="10">
-                        <StackPanel Spacing="10">
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Screen" />
+                        <StackPanel x:Name="HeaderTextPanel" MaxWidth="660" Spacing="5">
+                            <TextBlock Style="{StaticResource PageTitleStyle}" Text="Recorder" />
                             <TextBlock
-                                x:Name="ScreenStatusText"
                                 Style="{StaticResource BodyTextStyle}"
-                                Text="Checking Windows screen capture..."
+                                Text="Capture a screen-led walkthrough with camera and audio included when available."
                                 TextWrapping="Wrap" />
-                            <Button
-                                x:Name="ChooseSourceButton"
-                                HorizontalAlignment="Left"
-                                AutomationProperties.Name="Choose an application or display"
-                                Click="OnChooseSourceClicked"
-                                Content="Choose application or display" />
                         </StackPanel>
-                    </Border>
 
-                    <Border
-                        Grid.Column="1"
-                        Padding="20"
-                        Background="{StaticResource StudioSurfaceBrush}"
-                        BorderBrush="{StaticResource StudioDividerBrush}"
-                        BorderThickness="1"
-                        CornerRadius="10">
-                        <StackPanel Spacing="10">
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Camera" />
-                            <TextBlock
-                                x:Name="CameraStatusText"
-                                Style="{StaticResource BodyTextStyle}"
-                                Text="Checking camera devices..."
-                                TextWrapping="Wrap" />
-                            <ToggleSwitch
-                                x:Name="CameraOverlayToggle"
-                                Header="Include camera overlay"
-                                IsOn="True"
-                                Toggled="OnCameraOverlayToggled" />
-                            <Button
-                                x:Name="ConfigureCameraButton"
-                                HorizontalAlignment="Left"
-                                Click="OnConfigureCameraClicked"
-                                Content="Test camera" />
-                        </StackPanel>
-                    </Border>
-
-                    <Border
-                        Grid.Column="2"
-                        Padding="20"
-                        Background="{StaticResource StudioSurfaceBrush}"
-                        BorderBrush="{StaticResource StudioDividerBrush}"
-                        BorderThickness="1"
-                        CornerRadius="10">
-                        <StackPanel Spacing="10">
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Audio" />
-                            <TextBlock
-                                x:Name="AudioStatusText"
-                                Style="{StaticResource BodyTextStyle}"
-                                Text="Checking microphone and system audio..."
-                                TextWrapping="Wrap" />
-                            <Button HorizontalAlignment="Left" Content="Configure audio" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
-
-                <Grid ColumnSpacing="24">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                    <Border
-                        MinHeight="360"
-                        Background="#FF080808"
-                        BorderBrush="{StaticResource StudioDividerBrush}"
-                        BorderThickness="1"
-                        CornerRadius="12">
                         <StackPanel
-                            HorizontalAlignment="Center"
+                            x:Name="HeaderCommandPanel"
+                            Grid.Column="1"
+                            HorizontalAlignment="Right"
                             VerticalAlignment="Center"
+                            Orientation="Horizontal"
                             Spacing="10">
-                            <TextBlock
-                                HorizontalAlignment="Center"
-                                Style="{StaticResource SectionTitleStyle}"
-                                Text="Preview" />
-                            <TextBlock
-                                HorizontalAlignment="Center"
-                                Style="{StaticResource BodyTextStyle}"
-                                Text="Your selected screen and presenter layout will appear here." />
-                        </StackPanel>
-                    </Border>
+                            <Border
+                                x:Name="RecordingStatusPill"
+                                MinHeight="40"
+                                Padding="12,8"
+                                Background="{StaticResource RecordTintBrush}"
+                                BorderBrush="{StaticResource RecordBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Ellipse
+                                        x:Name="RecordingStateDot"
+                                        Width="9"
+                                        Height="9"
+                                        VerticalAlignment="Center"
+                                        Fill="{StaticResource RecordBrush}" />
+                                    <TextBlock
+                                        x:Name="RecordingStateText"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.LiveSetting="Polite"
+                                        FontWeight="SemiBold"
+                                        Foreground="{StaticResource StudioInkBrush}"
+                                        Text="Recording" />
+                                    <TextBlock
+                                        x:Name="RecordingElapsedText"
+                                        VerticalAlignment="Center"
+                                        FontFamily="Consolas"
+                                        Foreground="{StaticResource StudioInkBrush}"
+                                        Text="00:00" />
+                                </StackPanel>
+                            </Border>
 
-                    <Border
-                        Grid.Column="1"
-                        Padding="22"
-                        Background="{StaticResource StudioRaisedBrush}"
-                        BorderBrush="{StaticResource StudioDividerBrush}"
-                        BorderThickness="1"
-                        CornerRadius="12">
-                        <StackPanel Spacing="18">
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Recording health" />
+                            <ProgressRing
+                                x:Name="RecordingProgressRing"
+                                Width="24"
+                                Height="24"
+                                IsActive="False"
+                                Visibility="Collapsed" />
+
                             <Button
-                                x:Name="RefreshReadinessButton"
-                                HorizontalAlignment="Left"
-                                AutomationProperties.Name="Refresh recording health"
-                                Click="OnRefreshReadinessClicked"
-                                Content="Refresh checks" />
-                            <StackPanel Spacing="6">
-                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Storage" />
-                                <TextBlock
-                                    x:Name="StorageStatusText"
-                                    Style="{StaticResource BodyTextStyle}"
-                                    Text="Checking available space..." />
-                            </StackPanel>
-                            <StackPanel Spacing="6">
-                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Encoder" />
-                                <TextBlock
-                                    x:Name="EncoderStatusText"
-                                    Style="{StaticResource BodyTextStyle}"
-                                    Text="Checking FFmpeg encoders..."
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <StackPanel Spacing="6">
-                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Frames" />
-                                <TextBlock
-                                    x:Name="FrameStatusText"
-                                    Style="{StaticResource BodyTextStyle}"
-                                    Text="No active capture."
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
-                            <StackPanel Spacing="6">
-                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Shortcuts" />
-                                <TextBlock
-                                    x:Name="HotkeyStatusText"
-                                    Style="{StaticResource BodyTextStyle}"
-                                    Text="Registering global shortcuts..."
-                                    TextWrapping="Wrap" />
-                                <Button
-                                    x:Name="RefreshHotkeysButton"
-                                    HorizontalAlignment="Left"
-                                    Click="OnRefreshHotkeysClicked"
-                                    Content="Retry shortcuts" />
-                            </StackPanel>
-                            <StackPanel Spacing="6">
-                                <TextBlock Foreground="{StaticResource StudioInkBrush}" Text="Recovery" />
-                                <TextBlock Style="{StaticResource BodyTextStyle}" Text="Segments will be finalized during recording." TextWrapping="Wrap" />
-                            </StackPanel>
+                                x:Name="PauseRecordingButton"
+                                AutomationProperties.Name="Pause recording"
+                                Click="OnPauseRecordingClicked"
+                                Content="Pause"
+                                IsEnabled="False"
+                                ToolTipService.ToolTip="Global shortcut: Ctrl+Shift+P"
+                                Visibility="Collapsed" />
+
+                            <Button
+                                x:Name="StartRecordingButton"
+                                AutomationProperties.Name="Start recording"
+                                Click="OnStartRecordingClicked"
+                                Content="Record"
+                                IsEnabled="False"
+                                Style="{StaticResource RecordButtonStyle}"
+                                ToolTipService.ToolTip="Global shortcut: Ctrl+Shift+R">
+                                <Button.Resources>
+                                    <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="RecordHoverBrush" />
+                                    <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="RecordPressedBrush" />
+                                    <StaticResource x:Key="ButtonForegroundPointerOver" ResourceKey="StudioInkBrush" />
+                                    <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="StudioInkBrush" />
+                                </Button.Resources>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <ScrollViewer
+                    Grid.Row="1"
+                    HorizontalScrollMode="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+                    <Grid
+                        x:Name="RecorderContentGrid"
+                        MaxWidth="1280"
+                        Padding="32,20,32,32"
+                        HorizontalAlignment="Stretch"
+                        ColumnSpacing="20"
+                        RowSpacing="20">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="RecorderStageColumn" Width="*" />
+                            <ColumnDefinition x:Name="RecorderRailColumn" Width="360" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border
+                            x:Name="PreviewStage"
+                            MinHeight="500"
+                            Background="#FF050505"
+                            BorderBrush="{StaticResource StudioDividerBrush}"
+                            BorderThickness="1"
+                            CornerRadius="14">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <Grid Padding="18,16">
+                                    <Border
+                                        HorizontalAlignment="Left"
+                                        Padding="10,6"
+                                        Background="{StaticResource StudioSurfaceBrush}"
+                                        CornerRadius="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon
+                                                FontSize="15"
+                                                Foreground="{StaticResource AutomationBrush}"
+                                                Glyph="&#xE7F4;" />
+                                            <TextBlock
+                                                x:Name="PreviewSourceText"
+                                                VerticalAlignment="Center"
+                                                Style="{StaticResource MetaTextStyle}"
+                                                Text="No source selected" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+
+                                <StackPanel
+                                    x:Name="IdlePreviewContent"
+                                    Grid.Row="1"
+                                    MaxWidth="430"
+                                    Padding="24"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="12">
+                                    <Border
+                                        Width="64"
+                                        Height="64"
+                                        HorizontalAlignment="Center"
+                                        Background="{StaticResource StudioRaisedBrush}"
+                                        CornerRadius="14">
+                                        <FontIcon
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            FontSize="30"
+                                            Foreground="{StaticResource StudioMutedBrush}"
+                                            Glyph="&#xE7F4;" />
+                                    </Border>
+                                    <TextBlock
+                                        x:Name="PreviewStateText"
+                                        HorizontalAlignment="Center"
+                                        FontFamily="{StaticResource BodyFont}"
+                                        FontSize="22"
+                                        FontWeight="SemiBold"
+                                        Foreground="{StaticResource StudioInkBrush}"
+                                        Text="Ready to record" />
+                                    <TextBlock
+                                        x:Name="PreviewHintText"
+                                        HorizontalAlignment="Center"
+                                        Style="{StaticResource BodyTextStyle}"
+                                        Text="Choose an application or display, or press Record to select one and start."
+                                        TextAlignment="Center"
+                                        TextWrapping="Wrap" />
+                                    <Button
+                                        x:Name="ChooseSourceButton"
+                                        HorizontalAlignment="Center"
+                                        AutomationProperties.Name="Choose an application or display"
+                                        Click="OnChooseSourceClicked"
+                                        Content="Choose application or display" />
+                                </StackPanel>
+
+                                <Border
+                                    Grid.Row="2"
+                                    Padding="18,14"
+                                    Background="{StaticResource StudioSurfaceBrush}"
+                                    BorderBrush="{StaticResource StudioDividerBrush}"
+                                    BorderThickness="0,1,0,0">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Capture profile" />
+                                            <TextBlock
+                                                Style="{StaticResource MetaTextStyle}"
+                                                Text="GPU accelerated · 60 fps · crash-safe segments" />
+                                        </StackPanel>
+                                        <StackPanel
+                                            Grid.Column="1"
+                                            VerticalAlignment="Center"
+                                            Orientation="Horizontal"
+                                            Spacing="6">
+                                            <FontIcon
+                                                FontSize="14"
+                                                Foreground="{StaticResource SuccessBrush}"
+                                                Glyph="&#xE73E;" />
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                Style="{StaticResource MetaTextStyle}"
+                                                Text="Local-first" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Border>
+
+                        <StackPanel
+                            x:Name="SetupRail"
+                            Grid.Column="1"
+                            Spacing="14">
                             <InfoBar
                                 x:Name="ReadinessInfoBar"
+                                AutomationProperties.LiveSetting="Polite"
+                                AutomationProperties.Name="Recorder status"
                                 IsClosable="False"
                                 IsOpen="True"
                                 Message="Recording checks are running."
                                 Severity="Informational"
                                 Title="Preparing recorder" />
+
+                            <Border
+                                Padding="18"
+                                Background="{StaticResource StudioSurfaceBrush}"
+                                CornerRadius="12">
+                                <StackPanel Spacing="16">
+                                    <StackPanel Spacing="3">
+                                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Sources" />
+                                        <TextBlock
+                                            Style="{StaticResource MetaTextStyle}"
+                                            Text="Ready automatically; adjust only what you need." />
+                                    </StackPanel>
+
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon
+                                            x:Name="ScreenSourceIcon"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Top"
+                                            FontSize="18"
+                                            Foreground="{StaticResource AutomationBrush}"
+                                            Glyph="&#xE7F4;" />
+                                        <StackPanel Grid.Column="1" Spacing="3">
+                                            <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Screen" />
+                                            <TextBlock
+                                                x:Name="ScreenStatusText"
+                                                Style="{StaticResource MetaTextStyle}"
+                                                Text="Checking Windows screen capture..." />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Border Height="1" Background="{StaticResource StudioDividerBrush}" />
+
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon
+                                            x:Name="CameraSourceIcon"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Top"
+                                            FontSize="18"
+                                            Foreground="{StaticResource StudioMutedBrush}"
+                                            Glyph="&#xE722;" />
+                                        <StackPanel Grid.Column="1" Spacing="3">
+                                            <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Camera" />
+                                            <TextBlock
+                                                x:Name="CameraStatusText"
+                                                Style="{StaticResource MetaTextStyle}"
+                                                Text="Checking camera devices..." />
+                                            <Button
+                                                x:Name="ConfigureCameraButton"
+                                                Margin="0,6,0,0"
+                                                HorizontalAlignment="Left"
+                                                Click="OnConfigureCameraClicked"
+                                                Content="Test camera" />
+                                        </StackPanel>
+                                        <ToggleSwitch
+                                            x:Name="CameraOverlayToggle"
+                                            Grid.Column="2"
+                                            AutomationProperties.Name="Include camera overlay"
+                                            IsOn="True"
+                                            OffContent="Off"
+                                            OnContent="On"
+                                            Toggled="OnCameraOverlayToggled">
+                                            <ToggleSwitch.Resources>
+                                                <StaticResource x:Key="ToggleSwitchFillOn" ResourceKey="AutomationBrush" />
+                                                <StaticResource x:Key="ToggleSwitchFillOnPointerOver" ResourceKey="AutomationBrush" />
+                                                <StaticResource x:Key="ToggleSwitchFillOnPressed" ResourceKey="AutomationBrush" />
+                                                <StaticResource x:Key="ToggleSwitchStrokeOn" ResourceKey="AutomationBrush" />
+                                                <StaticResource x:Key="ToggleSwitchStrokeOnPointerOver" ResourceKey="AutomationBrush" />
+                                                <StaticResource x:Key="ToggleSwitchStrokeOnPressed" ResourceKey="AutomationBrush" />
+                                            </ToggleSwitch.Resources>
+                                        </ToggleSwitch>
+                                    </Grid>
+
+                                    <Border Height="1" Background="{StaticResource StudioDividerBrush}" />
+
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon
+                                            x:Name="AudioSourceIcon"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Top"
+                                            FontSize="18"
+                                            Foreground="{StaticResource StudioMutedBrush}"
+                                            Glyph="&#xE767;" />
+                                        <StackPanel Grid.Column="1" Spacing="3">
+                                            <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Audio" />
+                                            <TextBlock
+                                                x:Name="AudioStatusText"
+                                                Style="{StaticResource MetaTextStyle}"
+                                                Text="Checking microphone and system audio..." />
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Expander
+                                x:Name="RecordingHealthExpander"
+                                AutomationProperties.Name="Recording health"
+                                IsExpanded="False">
+                                <Expander.Header>
+                                    <StackPanel Orientation="Horizontal" Spacing="9">
+                                        <FontIcon
+                                            x:Name="RecordingHealthIcon"
+                                            FontSize="16"
+                                            Foreground="{StaticResource StudioMutedBrush}"
+                                            Glyph="&#xE95E;" />
+                                        <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Recording health" />
+                                    </StackPanel>
+                                </Expander.Header>
+                                <Border
+                                    Padding="16"
+                                    Background="{StaticResource StudioSurfaceBrush}">
+                                    <StackPanel Spacing="14">
+                                        <Button
+                                            x:Name="RefreshReadinessButton"
+                                            HorizontalAlignment="Left"
+                                            AutomationProperties.Name="Refresh recording health"
+                                            Click="OnRefreshReadinessClicked"
+                                            Content="Refresh checks" />
+
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon
+                                                x:Name="StorageStatusIcon"
+                                                Foreground="{StaticResource StudioMutedBrush}"
+                                                Glyph="&#xEDA2;" />
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Storage" />
+                                                <TextBlock
+                                                    x:Name="StorageStatusText"
+                                                    Style="{StaticResource MetaTextStyle}"
+                                                    Text="Checking available space..." />
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon
+                                                x:Name="EncoderStatusIcon"
+                                                Foreground="{StaticResource StudioMutedBrush}"
+                                                Glyph="&#xE950;" />
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Encoder" />
+                                                <TextBlock
+                                                    x:Name="EncoderStatusText"
+                                                    Style="{StaticResource MetaTextStyle}"
+                                                    Text="Checking media encoders..." />
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Foreground="{StaticResource StudioMutedBrush}" Glyph="&#xE9D2;" />
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Frames" />
+                                                <TextBlock
+                                                    x:Name="FrameStatusText"
+                                                    AutomationProperties.LiveSetting="Polite"
+                                                    Style="{StaticResource MetaTextStyle}"
+                                                    Text="No active capture." />
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Foreground="{StaticResource StudioMutedBrush}" Glyph="&#xE765;" />
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Shortcuts" />
+                                                <TextBlock
+                                                    x:Name="HotkeyStatusText"
+                                                    Style="{StaticResource MetaTextStyle}"
+                                                    Text="Registering global shortcuts..." />
+                                            </StackPanel>
+                                            <Button
+                                                x:Name="RefreshHotkeysButton"
+                                                Grid.Column="2"
+                                                VerticalAlignment="Center"
+                                                Click="OnRefreshHotkeysClicked"
+                                                Content="Retry" />
+                                        </Grid>
+
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Foreground="{StaticResource SuccessBrush}" Glyph="&#xE72E;" />
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Recovery" />
+                                                <TextBlock
+                                                    Style="{StaticResource MetaTextStyle}"
+                                                    Text="Source segments are finalized continuously while recording." />
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </Expander>
                         </StackPanel>
-                    </Border>
+
+                    </Grid>
+                </ScrollViewer>
+            </Grid>
+
+            <Grid
+                x:Name="ProjectsView"
+                Padding="32,24,32,32"
+                Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Margin="0,0,0,20">
+                    <StackPanel Spacing="5">
+                        <TextBlock Style="{StaticResource PageTitleStyle}" Text="Projects" />
+                        <TextBlock
+                            Style="{StaticResource BodyTextStyle}"
+                            Text="Open a recording, review its automatic edit, and export."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button
+                        x:Name="RefreshProjectsButton"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Click="OnRefreshProjectsClicked"
+                        Content="Refresh projects" />
                 </Grid>
 
-                <Border
-                    x:Name="ProjectsSection"
-                    Padding="24"
-                    Background="{StaticResource StudioSurfaceBrush}"
-                    BorderBrush="{StaticResource StudioDividerBrush}"
-                    BorderThickness="1"
-                    CornerRadius="12">
-                    <StackPanel Spacing="16">
-                        <Grid>
-                            <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Recent projects" />
-                            <Button
-                                x:Name="RefreshProjectsButton"
-                                HorizontalAlignment="Right"
-                                Click="OnRefreshProjectsClicked"
-                                Content="Refresh" />
-                        </Grid>
-                        <TextBlock
-                            x:Name="ProjectsEmptyText"
-                            Style="{StaticResource BodyTextStyle}"
-                            Text="No recording projects yet." />
-                        <ListView
-                            x:Name="RecentProjectsList"
-                            MaxHeight="360"
-                            IsItemClickEnabled="True"
-                            ItemClick="OnProjectItemClicked"
-                            SelectionMode="None" />
-                    </StackPanel>
-                </Border>
+                <ScrollViewer
+                    Grid.Row="1"
+                    HorizontalScrollMode="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+                    <Grid
+                        x:Name="ProjectsLayoutGrid"
+                        MaxWidth="1280"
+                        HorizontalAlignment="Stretch"
+                        ColumnSpacing="20"
+                        RowSpacing="20">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="ProjectsListColumn" Width="380" />
+                            <ColumnDefinition x:Name="ProjectDetailColumn" Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                <Border
-                    x:Name="TimelineSection"
-                    Padding="24"
-                    Background="{StaticResource StudioSurfaceBrush}"
-                    BorderBrush="{StaticResource StudioDividerBrush}"
-                    BorderThickness="1"
-                    CornerRadius="12"
-                    Visibility="Collapsed">
-                    <StackPanel Spacing="16">
-                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Editor timeline" />
-                        <TextBlock
-                            x:Name="TimelineProjectTitle"
-                            Style="{StaticResource BodyTextStyle}"
-                            TextWrapping="Wrap" />
-                        <Grid ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ComboBox
-                                x:Name="RenderPresetComboBox"
-                                Header="Export framing"
-                                SelectedIndex="0"
-                                SelectionChanged="OnRenderPresetChanged">
-                                <ComboBoxItem Content="Landscape 1920 × 1080" />
-                                <ComboBoxItem Content="Portrait 1080 × 1920" />
-                                <ComboBoxItem Content="Square 1080 × 1080" />
-                            </ComboBox>
-                            <Button
-                                Grid.Column="1"
-                                VerticalAlignment="Bottom"
-                                Click="OnSaveRenderPlanClicked"
-                                Content="Save render plan" />
-                        </Grid>
-                        <Button
-                            x:Name="ExportMp4Button"
-                            HorizontalAlignment="Left"
-                            Click="OnExportMp4Clicked"
-                            Content="Export MP4" />
-                        <Button
-                            x:Name="GenerateCaptionsButton"
-                            HorizontalAlignment="Left"
-                            Click="OnGenerateCaptionsClicked"
-                            Content="Generate local captions" />
-                        <StackPanel
-                            x:Name="CaptionEditorPanel"
-                            Spacing="10"
-                            Visibility="Collapsed">
-                            <ComboBox
-                                x:Name="CaptionSelectorComboBox"
-                                Header="Caption segment"
-                                SelectionChanged="OnCaptionSelectionChanged" />
-                            <TextBox
-                                x:Name="CaptionTextBox"
-                                Header="Caption text"
-                                AcceptsReturn="True"
-                                TextWrapping="Wrap" />
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <NumberBox
-                                    x:Name="CaptionStartNumberBox"
-                                    Header="Start seconds"
-                                    Minimum="0"
-                                    SmallChange="0.1" />
-                                <NumberBox
-                                    x:Name="CaptionEndNumberBox"
-                                    Grid.Column="1"
-                                    Header="End seconds"
-                                    Minimum="0"
-                                    SmallChange="0.1" />
-                            </Grid>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Click="OnApplyCaptionEditClicked" Content="Apply caption edit" />
-                                <Button
-                                    x:Name="UndoCaptionButton"
-                                    Click="OnUndoCaptionClicked"
-                                    Content="Undo"
-                                    IsEnabled="False" />
-                                <Button
-                                    x:Name="RedoCaptionButton"
-                                    Click="OnRedoCaptionClicked"
-                                    Content="Redo"
-                                    IsEnabled="False" />
+                        <Border
+                            x:Name="ProjectsSection"
+                            Padding="18"
+                            Background="{StaticResource StudioSurfaceBrush}"
+                            CornerRadius="12">
+                            <StackPanel Spacing="14">
+                                <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Recent recordings" />
+                                <TextBlock
+                                    x:Name="ProjectsEmptyText"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    Text="No recordings yet. Return to Recorder and make your first one." />
+                                <ListView
+                                    x:Name="RecentProjectsList"
+                                    MaxHeight="540"
+                                    AutomationProperties.Name="Recent recordings"
+                                    IsItemClickEnabled="True"
+                                    ItemClick="OnProjectItemClicked"
+                                    SelectionMode="None" />
                             </StackPanel>
-                        </StackPanel>
-                        <TextBlock
-                            x:Name="RenderPlanSummaryText"
-                            Style="{StaticResource BodyTextStyle}"
-                            TextWrapping="Wrap" />
-                        <ListView
-                            x:Name="TimelineItemsList"
-                            MaxHeight="420"
-                            SelectionMode="None" />
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </ScrollViewer>
-    </Grid>
+                        </Border>
+
+                        <Border
+                            x:Name="TimelineSection"
+                            Grid.Column="1"
+                            Padding="20"
+                            Background="{StaticResource StudioSurfaceBrush}"
+                            CornerRadius="12"
+                            Visibility="Collapsed">
+                            <StackPanel Spacing="16">
+                                <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Edit and export" />
+                                <TextBlock
+                                    x:Name="TimelineProjectTitle"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    TextWrapping="Wrap" />
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox
+                                        x:Name="RenderPresetComboBox"
+                                        Header="Export framing"
+                                        SelectedIndex="0"
+                                        SelectionChanged="OnRenderPresetChanged">
+                                        <ComboBoxItem Content="Landscape 1920 × 1080" />
+                                        <ComboBoxItem Content="Portrait 1080 × 1920" />
+                                        <ComboBoxItem Content="Square 1080 × 1080" />
+                                    </ComboBox>
+                                    <Button
+                                        x:Name="SaveRenderPlanButton"
+                                        Grid.Column="1"
+                                        VerticalAlignment="Bottom"
+                                        Click="OnSaveRenderPlanClicked"
+                                        Content="Save plan" />
+                                </Grid>
+
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        x:Name="ExportMp4Button"
+                                        Click="OnExportMp4Clicked"
+                                        Content="Export MP4"
+                                        Style="{StaticResource RecordButtonStyle}" />
+                                    <Button
+                                        x:Name="GenerateCaptionsButton"
+                                        Click="OnGenerateCaptionsClicked"
+                                        Content="Generate captions" />
+                                </StackPanel>
+
+                                <StackPanel
+                                    x:Name="CaptionEditorPanel"
+                                    Spacing="10"
+                                    Visibility="Collapsed">
+                                    <ComboBox
+                                        x:Name="CaptionSelectorComboBox"
+                                        Header="Caption segment"
+                                        SelectionChanged="OnCaptionSelectionChanged" />
+                                    <TextBox
+                                        x:Name="CaptionTextBox"
+                                        Header="Caption text"
+                                        AcceptsReturn="True"
+                                        TextWrapping="Wrap" />
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <NumberBox
+                                            x:Name="CaptionStartNumberBox"
+                                            Header="Start seconds"
+                                            Minimum="0"
+                                            SmallChange="0.1" />
+                                        <NumberBox
+                                            x:Name="CaptionEndNumberBox"
+                                            Grid.Column="1"
+                                            Header="End seconds"
+                                            Minimum="0"
+                                            SmallChange="0.1" />
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Click="OnApplyCaptionEditClicked" Content="Apply caption edit" />
+                                        <Button
+                                            x:Name="UndoCaptionButton"
+                                            Click="OnUndoCaptionClicked"
+                                            Content="Undo"
+                                            IsEnabled="False" />
+                                        <Button
+                                            x:Name="RedoCaptionButton"
+                                            Click="OnRedoCaptionClicked"
+                                            Content="Redo"
+                                            IsEnabled="False" />
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <TextBlock
+                                    x:Name="RenderPlanSummaryText"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    TextWrapping="Wrap" />
+                                <ListView
+                                    x:Name="TimelineItemsList"
+                                    MaxHeight="460"
+                                    AutomationProperties.Name="Timeline clips and automatic edits"
+                                    SelectionMode="None" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border
+                            x:Name="ProjectDetailEmptyState"
+                            Grid.Column="1"
+                            MinHeight="360"
+                            Padding="32"
+                            Background="{StaticResource StudioSurfaceBrush}"
+                            CornerRadius="12">
+                            <StackPanel
+                                MaxWidth="360"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="10">
+                                <FontIcon
+                                    HorizontalAlignment="Center"
+                                    FontSize="30"
+                                    Foreground="{StaticResource StudioMutedBrush}"
+                                    Glyph="&#xE8F1;" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    Style="{StaticResource SectionTitleStyle}"
+                                    Text="Select a recording" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    Style="{StaticResource BodyTextStyle}"
+                                    Text="Choose a recent recording to review its timeline, captions, and export options."
+                                    TextAlignment="Center"
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                    </Grid>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </NavigationView>
 </Page>

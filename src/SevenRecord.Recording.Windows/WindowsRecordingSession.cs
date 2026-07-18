@@ -109,6 +109,10 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
 
     public event Action<CaptureFrameHealthSnapshot>? ScreenHealthChanged;
 
+    public TimeSpan ActiveDuration =>
+        _pauseController.Map(
+            _projectClock.Normalize(QpcTimestamp.Now()));
+
     public string? CameraDeviceName => _camera?.DeviceName;
 
     public Exception? CaptureFailure => Volatile.Read(ref _captureFailure);

@@ -2,12 +2,15 @@ using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Domain.Video;
+using SevenRecord.Media;
 using SevenRecord.Media.Windows;
 using SevenRecord.Recording;
 using Windows.Media.Capture;
 using Windows.Media.Capture.Frames;
+using Windows.Media;
 using Windows.Media.MediaProperties;
 using Windows.Graphics.DirectX;
+using Windows.Graphics.Imaging;
 
 namespace SevenRecord.Camera.Windows;
 
@@ -191,19 +194,21 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 projectRoot,
                 "temp",
                 "camera.partial.mp4");
+            int encoderWidth = VideoEncodingDimensions.NormalizeEven(width);
+            int encoderHeight = VideoEncodingDimensions.NormalizeEven(height);
             Direct3DSurfaceVideoEncoder encoder =
                 await Direct3DSurfaceVideoEncoder.CreateAsync(
                     temporaryPath,
-                    width,
-                    height,
+                    encoderWidth,
+                    encoderHeight,
                     framesPerSecond: 30,
                     bitrate: 4_000_000,
                     cancellationToken);
             CanvasDevice device = new();
             CanvasRenderTarget renderTarget = new(
                 device,
-                width,
-                height,
+                encoderWidth,
+                encoderHeight,
                 96,
                 DirectXPixelFormat.B8G8R8A8UIntNormalized,
                 CanvasAlphaMode.Ignore);
@@ -303,7 +308,10 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
 
         if (_failure is not null)
         {
-            throw new InvalidOperationException("Camera frame processing failed.", _failure);
+            throw new InvalidOperationException(
+                $"Camera frame processing failed: {_failure.GetType().Name} " +
+                $"0x{_failure.HResult:X8}: {_failure.Message}",
+                _failure);
         }
 
         await _encoder.CompleteAsync();
@@ -480,12 +488,23 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 frame.SystemRelativeTime ?? QpcTimestamp.Now().SystemRelativeTime;
             TimeSpan projectTime = _pauseController.Map(
                 _projectClock.NormalizeSystemRelativeTime(systemRelativeTime));
-            using CanvasBitmap cameraBitmap =
-                CanvasBitmap.CreateFromDirect3D11Surface(_device, surface);
             using (CanvasDrawingSession drawing = _renderTarget.CreateDrawingSession())
             {
-                drawing.DrawImage(cameraBitmap);
+                drawing.Clear(global::Windows.UI.Color.FromArgb(255, 0, 0, 0));
             }
+            using VideoFrame sourceFrame =
+                VideoFrame.CreateWithDirect3D11Surface(surface);
+            using VideoFrame destinationFrame =
+                VideoFrame.CreateWithDirect3D11Surface(_renderTarget);
+            BitmapBounds sourceBounds = new()
+            {
+                Width = (uint)Width,
+                Height = (uint)Height,
+            };
+            await sourceFrame.CopyToAsync(
+                destinationFrame,
+                sourceBounds,
+                sourceBounds);
             await _encoder.ProcessSurfaceAsync(
                 _renderTarget,
                 projectTime,

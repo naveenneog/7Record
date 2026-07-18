@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-18 18:26 IST
+Last updated: 2026-07-18 20:12 IST
 
 ## Resume Here (deadline checkpoint)
 
@@ -112,6 +112,9 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Missing microphone/system playback endpoints are warnings rather than hard blockers.
 - Static or odd-sized application windows are copied through GPU render targets and paced to Media Foundation at 60 fps; the odd-window harness produced H.264 538×634 with clean screen/audio publication.
 - Source acceptance now opens at one shared QPC start boundary and closes at one shared stop boundary; the validation journal reported 5.87 seconds while screen/microphone/system media measured 5.78/5.80/5.82 seconds.
+- The recorder UI is now preview-first with native Recorder/Projects navigation, one branded Record action, state pill/timer/progress feedback, compact source rows, progressive health, adaptive 1024×720 stacking, dynamic UIA names, and contrast-theme resources.
+- Redirected camera frames now cross Direct3D device domains through `VideoFrame.CopyToAsync`; the 1280×720 camera probe delivered 40 frames with zero drops and the full camera-on capture harness published screen/audio/camera.
+- UI/UX and senior-QA findings, fixes, evidence, and residual manual checks are logged in `docs/qa/recorder-ui-ux-qa-2026-07-18.md`; `tools/test-recorder-ui.ps1` is the repeatable UIA/adaptivity gate.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
