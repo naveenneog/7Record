@@ -45,6 +45,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added a `Retry shortcuts` action in recording health so global-hotkey registration can be retried after startup conflicts without restarting.
 - Disabled `Retry shortcuts` automatically when global hotkeys are active and re-enabled it when registration is unavailable.
 - Cleared stale global-shortcut warning banners automatically after successful shortcut registration/retry.
+- Added tooltip hints on recording controls to advertise `Ctrl+Shift+R` and `Ctrl+Shift+P` shortcuts in-app.
 
 ### Research
 

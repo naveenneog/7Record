@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-18 08:38 IST
+Last updated: 2026-07-18 08:42 IST
 
 ## Mission
 
@@ -81,6 +81,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Recording health includes a `Retry shortcuts` action to re-attempt global shortcut registration after conflicts clear.
 - The retry action now disables itself while shortcuts are active and re-enables only when registration is unavailable.
 - Successful hotkey registration now restores the readiness banner so prior shortcut-conflict warnings do not linger.
+- The record/pause controls now expose hotkey tooltip hints so shortcut discovery does not depend on external docs.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

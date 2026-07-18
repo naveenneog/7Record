@@ -51,7 +51,8 @@
                     Click="OnStartRecordingClicked"
                     Content="New recording"
                     IsEnabled="False"
-                    Style="{StaticResource AccentButtonStyle}" />
+                    Style="{StaticResource AccentButtonStyle}"
+                    ToolTipService.ToolTip="Global shortcut: Ctrl+Shift+R" />
                 <Button
                     x:Name="PauseRecordingButton"
                     Margin="0,0,150,0"
@@ -59,7 +60,8 @@
                     VerticalAlignment="Center"
                     Click="OnPauseRecordingClicked"
                     Content="Pause"
-                    IsEnabled="False" />
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="Global shortcut: Ctrl+Shift+P" />
             </Grid>
         </Border>
 
