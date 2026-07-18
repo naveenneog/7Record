@@ -28,10 +28,7 @@ public sealed class GlobalHotKeyService : IDisposable
 
     public GlobalHotKeyService(nint window)
     {
-        if (window == 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(window));
-        }
+        ArgumentOutOfRangeException.ThrowIfZero(window);
 
         _window = window;
         _windowProcedure = WindowProcedure;

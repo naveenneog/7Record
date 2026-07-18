@@ -22,7 +22,7 @@ using SevenRecord.Transcription;
 
 namespace SevenRecord.App;
 
-public sealed partial class MainPage : Page
+public sealed partial class MainPage : Page, IDisposable
 {
     private static readonly JsonSerializerOptions AudioRepairSerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
@@ -547,14 +547,14 @@ public sealed partial class MainPage : Page
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
-        if (_globalHotKeys is not null)
-        {
-            _globalHotKeys.Triggered -= OnGlobalHotKey;
-            _globalHotKeys.Dispose();
-            _globalHotKeys = null;
-        }
-
+        DisposeGlobalHotKeys();
         await StopCaptureAsync();
+    }
+
+    public void Dispose()
+    {
+        DisposeGlobalHotKeys();
+        GC.SuppressFinalize(this);
     }
 
     private async void OnStartRecordingClicked(object sender, RoutedEventArgs e)
@@ -1029,6 +1029,18 @@ public sealed partial class MainPage : Page
         {
             OnPauseRecordingClicked(this, new RoutedEventArgs());
         }
+    }
+
+    private void DisposeGlobalHotKeys()
+    {
+        if (_globalHotKeys is null)
+        {
+            return;
+        }
+
+        _globalHotKeys.Triggered -= OnGlobalHotKey;
+        _globalHotKeys.Dispose();
+        _globalHotKeys = null;
     }
 
     private async Task RefreshProjectsAsync()
