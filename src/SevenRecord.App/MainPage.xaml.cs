@@ -46,6 +46,7 @@ public sealed partial class MainPage : Page, IDisposable
     ]);
     private WindowsScreenCaptureSession? _captureSession;
     private string? _activeProjectRoot;
+    private RecordingProjectWriter? _projectWriter;
     private RecoverableAudioRecordingSession? _audioRecorder;
     private AudioCaptureHealth? _microphoneHealth;
     private AudioCaptureHealth? _systemAudioHealth;
@@ -616,10 +617,13 @@ public sealed partial class MainPage : Page, IDisposable
         RecoverableAudioRecordingSession? pendingAudioRecorder = null;
         RecoverableCameraRecordingSession? pendingCameraRecorder = null;
         CursorMetadataRecorder? pendingCursorRecorder = null;
+        RecordingProjectWriter? pendingProjectWriter = null;
         string? cameraStartWarning = null;
         try
         {
             string projectRoot = CreateProjectRoot();
+            pendingProjectWriter =
+                await RecordingProjectWriter.OpenAsync(projectRoot);
             ProjectClock projectClock = ProjectClock.StartNew();
             RecordingPauseController pauseController = new();
             try
@@ -637,11 +641,13 @@ public sealed partial class MainPage : Page, IDisposable
                 _selectedScreen.Width,
                 _selectedScreen.Height,
                 projectClock,
-                pauseController);
+                pauseController,
+                pendingProjectWriter);
             pendingAudioRecorder = RecoverableAudioRecordingSession.Start(
                 projectRoot,
                 projectClock,
-                pauseController);
+                pauseController,
+                pendingProjectWriter);
             pendingAudioRecorder.HealthChanged += OnAudioHealthChanged;
             if (_cameraEnabled)
             {
@@ -651,7 +657,8 @@ public sealed partial class MainPage : Page, IDisposable
                         await RecoverableCameraRecordingSession.CreateAsync(
                             projectRoot,
                             projectClock,
-                            pauseController);
+                            pauseController,
+                            pendingProjectWriter);
                     CameraStatusText.Text =
                         $"{pendingCameraRecorder.DeviceName} is recording with GPU surface encoding.";
                 }
@@ -680,12 +687,14 @@ public sealed partial class MainPage : Page, IDisposable
             _microphoneHealth = null;
             _systemAudioHealth = null;
             _activeProjectRoot = projectRoot;
+            _projectWriter = pendingProjectWriter;
             _recordingClock = projectClock;
             _pauseController = pauseController;
             pendingSegmentRecorder = null;
             pendingAudioRecorder = null;
             pendingCameraRecorder = null;
             pendingCursorRecorder = null;
+            pendingProjectWriter = null;
             _captureSession = capture;
 
             StartRecordingButton.Content = "Stop";
@@ -728,6 +737,7 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 await pendingCursorRecorder.DisposeAsync();
             }
+            pendingProjectWriter?.Dispose();
 
             System.Diagnostics.Debug.WriteLine(exception);
             StartRecordingButton.IsEnabled = true;
@@ -951,6 +961,7 @@ public sealed partial class MainPage : Page, IDisposable
         RecoverableAudioRecordingSession? audioRecorder = _audioRecorder;
         RecoverableCameraRecordingSession? cameraRecorder = _cameraRecorder;
         CursorMetadataRecorder? cursorRecorder = _cursorRecorder;
+        RecordingProjectWriter? projectWriter = _projectWriter;
         string? projectRoot = _activeProjectRoot;
         _segmentRecorder = null;
         _audioRecorder = null;
@@ -958,6 +969,7 @@ public sealed partial class MainPage : Page, IDisposable
         _systemAudioHealth = null;
         _cameraRecorder = null;
         _cursorRecorder = null;
+        _projectWriter = null;
         _activeProjectRoot = null;
         _recordingClock = null;
         _pauseController = null;
@@ -1068,6 +1080,7 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 await cursorRecorder.DisposeAsync();
             }
+            projectWriter?.Dispose();
         }
 
         StartRecordingButton.Content = "Record";

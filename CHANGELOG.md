@@ -59,6 +59,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Completed the recording-orchestration architecture spike: accepted a neutral lifecycle state machine, Windows controller/active-session boundary, single-flight teardown, one journal owner, optional-source failure isolation, and separate post-processing pipeline.
 - Added a thread-safe, revisioned recorder lifecycle state machine (`Idle`, `Starting`, `Recording`, `Paused`, `Stopping`, `Faulted`) with concurrent-stop and invalid-transition tests.
 - Added `SevenRecord.Recording.Windows` and moved the Direct3D screen encoder/publisher out of the WinUI project without changing recording behavior.
+- Added one session-owned `RecordingProjectWriter` for serialized segment sequence allocation and journal publication across screen, microphone, system audio, and camera.
+- Made segment move→journal append a non-cancellable commit boundary so caller cancellation cannot orphan a successfully moved segment.
 
 ### Research
 

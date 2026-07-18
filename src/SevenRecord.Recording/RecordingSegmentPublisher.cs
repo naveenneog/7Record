@@ -73,7 +73,10 @@ public sealed class RecordingSegmentPublisher
             duration.Ticks,
             length,
             sha256);
-        await _journal.AppendAsync(entry, cancellationToken);
+        // Cancellation is honored before the file move. Once the commit begins,
+        // the journal append must finish so a published segment is never left
+        // unreferenced solely because the caller canceled its wait.
+        await _journal.AppendAsync(entry, CancellationToken.None);
 
         return entry;
     }

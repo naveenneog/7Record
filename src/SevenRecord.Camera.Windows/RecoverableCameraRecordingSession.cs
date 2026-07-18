@@ -30,13 +30,13 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
     private readonly CanvasDevice _device;
     private readonly Direct3DSurfaceVideoEncoder _encoder;
     private readonly MediaFrameReader _reader;
-    private readonly RecordingJournal _journal;
     private readonly string _layoutPath;
     private readonly PresenterLayoutSettings _layout;
+    private readonly bool _ownsProjectWriter;
     private readonly RecordingPauseController _pauseController;
     private readonly SemaphoreSlim _processingGate = new(1, 1);
     private readonly ProjectClock _projectClock;
-    private readonly RecordingSegmentPublisher _publisher;
+    private readonly RecordingProjectWriter _projectWriter;
     private readonly CanvasRenderTarget _renderTarget;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly string _temporaryPath;
@@ -61,6 +61,8 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         CanvasDevice device,
         CanvasRenderTarget renderTarget,
         Direct3DSurfaceVideoEncoder encoder,
+        RecordingProjectWriter projectWriter,
+        bool ownsProjectWriter,
         PresenterLayoutSettings layout,
         string temporaryPath)
     {
@@ -74,11 +76,11 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         _device = device;
         _renderTarget = renderTarget;
         _encoder = encoder;
+        _projectWriter = projectWriter;
+        _ownsProjectWriter = ownsProjectWriter;
         _layout = layout;
         _temporaryPath = temporaryPath;
         _layoutPath = Path.Combine(projectRoot, "presenter-layout.json");
-        _journal = new RecordingJournal(Path.Combine(projectRoot, "recording.journal"));
-        _publisher = new RecordingSegmentPublisher(projectRoot, _journal);
         _reader.FrameArrived += OnFrameArrived;
     }
 
@@ -95,9 +97,57 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         PresenterLayoutSettings? layout = null,
         CancellationToken cancellationToken = default)
     {
+        RecordingProjectWriter projectWriter =
+            await RecordingProjectWriter.OpenAsync(
+                projectRoot,
+                cancellationToken);
+        try
+        {
+            return await CreateAsync(
+                projectRoot,
+                projectClock,
+                pauseController,
+                projectWriter,
+                ownsProjectWriter: true,
+                layout: layout,
+                cancellationToken: cancellationToken);
+        }
+        catch
+        {
+            projectWriter.Dispose();
+            throw;
+        }
+    }
+
+    public static Task<RecoverableCameraRecordingSession> CreateAsync(
+        string projectRoot,
+        ProjectClock projectClock,
+        RecordingPauseController pauseController,
+        RecordingProjectWriter projectWriter,
+        PresenterLayoutSettings? layout = null,
+        CancellationToken cancellationToken = default) =>
+        CreateAsync(
+            projectRoot,
+            projectClock,
+            pauseController,
+            projectWriter,
+            ownsProjectWriter: false,
+            layout: layout,
+            cancellationToken: cancellationToken);
+
+    private static async Task<RecoverableCameraRecordingSession> CreateAsync(
+        string projectRoot,
+        ProjectClock projectClock,
+        RecordingPauseController pauseController,
+        RecordingProjectWriter projectWriter,
+        bool ownsProjectWriter,
+        PresenterLayoutSettings? layout,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
         ArgumentNullException.ThrowIfNull(projectClock);
         ArgumentNullException.ThrowIfNull(pauseController);
+        ArgumentNullException.ThrowIfNull(projectWriter);
         Directory.CreateDirectory(projectRoot);
 
         IReadOnlyList<MediaFrameSourceGroup> groups =
@@ -168,6 +218,8 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 device,
                 renderTarget,
                 encoder,
+                projectWriter,
+                ownsProjectWriter,
                 layout ?? PresenterLayoutSettings.DefaultOverlay,
                 temporaryPath);
 
@@ -250,9 +302,8 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         }
 
         _completed = true;
-        RecordingSegmentEntry segment = await _publisher.PublishAsync(
+        RecordingSegmentEntry segment = await _projectWriter.PublishAsync(
             _temporaryPath,
-            sequence: 4,
             sourceId: "camera",
             start: TimeSpan.Zero,
             _duration,
@@ -291,7 +342,10 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         _device.Dispose();
         _reader.Dispose();
         _capture.Dispose();
-        _journal.Dispose();
+        if (_ownsProjectWriter)
+        {
+            _projectWriter.Dispose();
+        }
         _processingGate.Dispose();
         _shutdown.Dispose();
     }

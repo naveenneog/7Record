@@ -19,13 +19,13 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
     private static readonly JsonSerializerOptions SerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private readonly SynchronizedAudioCaptureSession _capture;
-    private readonly RecordingJournal _journal;
     private readonly List<AudioGapMetadata> _microphoneGaps = [];
     private readonly object _microphoneGate = new();
     private readonly string _microphoneTemporaryPath;
     private readonly WaveFileWriter _microphoneWriter;
-    private readonly RecordingSegmentPublisher _publisher;
+    private readonly bool _ownsProjectWriter;
     private readonly string _projectRoot;
+    private readonly RecordingProjectWriter _projectWriter;
     private readonly ProjectClock _projectClock;
     private readonly RecordingPauseController _pauseController;
     private readonly object _systemAudioGate = new();
@@ -41,14 +41,16 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         string projectRoot,
         SynchronizedAudioCaptureSession capture,
         ProjectClock projectClock,
-        RecordingPauseController pauseController)
+        RecordingPauseController pauseController,
+        RecordingProjectWriter projectWriter,
+        bool ownsProjectWriter)
     {
         _projectRoot = projectRoot;
         _projectClock = projectClock;
         _pauseController = pauseController;
         _capture = capture;
-        _journal = new RecordingJournal(Path.Combine(projectRoot, "recording.journal"));
-        _publisher = new RecordingSegmentPublisher(projectRoot, _journal);
+        _projectWriter = projectWriter;
+        _ownsProjectWriter = ownsProjectWriter;
         _microphoneTemporaryPath = Path.Combine(projectRoot, "temp", "microphone.partial.wav");
         _systemAudioTemporaryPath = Path.Combine(projectRoot, "temp", "system-audio.partial.wav");
         Directory.CreateDirectory(Path.Combine(projectRoot, "temp"));
@@ -69,9 +71,49 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         ProjectClock projectClock,
         RecordingPauseController pauseController)
     {
+        RecordingProjectWriter projectWriter =
+            RecordingProjectWriter.OpenAsync(projectRoot)
+                .GetAwaiter()
+                .GetResult();
+        try
+        {
+            return Start(
+                projectRoot,
+                projectClock,
+                pauseController,
+                projectWriter,
+                ownsProjectWriter: true);
+        }
+        catch
+        {
+            projectWriter.Dispose();
+            throw;
+        }
+    }
+
+    public static RecoverableAudioRecordingSession Start(
+        string projectRoot,
+        ProjectClock projectClock,
+        RecordingPauseController pauseController,
+        RecordingProjectWriter projectWriter) =>
+        Start(
+            projectRoot,
+            projectClock,
+            pauseController,
+            projectWriter,
+            ownsProjectWriter: false);
+
+    private static RecoverableAudioRecordingSession Start(
+        string projectRoot,
+        ProjectClock projectClock,
+        RecordingPauseController pauseController,
+        RecordingProjectWriter projectWriter,
+        bool ownsProjectWriter)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
         ArgumentNullException.ThrowIfNull(projectClock);
         ArgumentNullException.ThrowIfNull(pauseController);
+        ArgumentNullException.ThrowIfNull(projectWriter);
         Directory.CreateDirectory(projectRoot);
 
         SynchronizedAudioCaptureSession capture = new(projectClock);
@@ -82,7 +124,9 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
                 projectRoot,
                 capture,
                 projectClock,
-                pauseController);
+                pauseController,
+                projectWriter,
+                ownsProjectWriter);
             capture.Start();
             return session;
         }
@@ -150,16 +194,14 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         _completed = true;
         TimeSpan duration = _pauseController.Map(
             _projectClock.Normalize(QpcTimestamp.Now()));
-        RecordingSegmentEntry microphone = await _publisher.PublishAsync(
+        RecordingSegmentEntry microphone = await _projectWriter.PublishAsync(
             _microphoneTemporaryPath,
-            sequence: 2,
             sourceId: "microphone",
             start: TimeSpan.Zero,
             duration,
             cancellationToken);
-        RecordingSegmentEntry systemAudio = await _publisher.PublishAsync(
+        RecordingSegmentEntry systemAudio = await _projectWriter.PublishAsync(
             _systemAudioTemporaryPath,
-            sequence: 3,
             sourceId: "system-audio",
             start: TimeSpan.Zero,
             duration,
@@ -199,7 +241,10 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         }
 
         await _capture.DisposeAsync();
-        _journal.Dispose();
+        if (_ownsProjectWriter)
+        {
+            _projectWriter.Dispose();
+        }
     }
 
     private void OnPacketCaptured(AudioCapturePacket packet)

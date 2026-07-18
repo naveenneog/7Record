@@ -107,6 +107,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - `docs/spikes/architecture-recording-orchestration-spike.md` records the accepted migration away from `MainPage`-owned resources: neutral revisioned lifecycle state, Windows controller/active session, single-flight stop, one journal owner, optional-source failure isolation, and post-processing after raw finalization.
 - `SevenRecord.Recording` now contains the tested neutral recorder state machine.
 - `SevenRecord.Recording.Windows` now owns the Direct3D screen segment encoder/publisher; the next migration step is a reusable Windows controller/active-session aggregate and adapting `MainPage` to its snapshots.
+- Active recording now uses one `RecordingProjectWriter` across screen/audio/camera, providing a single journal owner, serialized sequence allocation, and a cancellation-safe publication commit boundary.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
