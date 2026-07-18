@@ -113,6 +113,7 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void OnRefreshHotkeysClicked(object sender, RoutedEventArgs e)
     {
+        RefreshHotkeysButton.IsEnabled = false;
         HotkeyStatusText.Text = "Registering global shortcuts...";
         DisposeGlobalHotKeys();
         RegisterGlobalHotKeys();
@@ -1009,6 +1010,7 @@ public sealed partial class MainPage : Page, IDisposable
         {
             HotkeyStatusText.Text =
                 "Global shortcuts active: Ctrl+Shift+R (record) and Ctrl+Shift+P (pause).";
+            RefreshHotkeysButton.IsEnabled = false;
             return;
         }
 
@@ -1021,6 +1023,7 @@ public sealed partial class MainPage : Page, IDisposable
             _globalHotKeys.Triggered += OnGlobalHotKey;
             HotkeyStatusText.Text =
                 "Global shortcuts active: Ctrl+Shift+R (record) and Ctrl+Shift+P (pause).";
+            RefreshHotkeysButton.IsEnabled = false;
         }
         catch (Win32Exception exception)
         {
@@ -1028,6 +1031,7 @@ public sealed partial class MainPage : Page, IDisposable
             ReadinessInfoBar.Message = exception.Message;
             ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
             HotkeyStatusText.Text = $"Global shortcuts unavailable: {exception.Message}";
+            RefreshHotkeysButton.IsEnabled = true;
         }
     }
 
@@ -1053,6 +1057,7 @@ public sealed partial class MainPage : Page, IDisposable
         _globalHotKeys.Triggered -= OnGlobalHotKey;
         _globalHotKeys.Dispose();
         _globalHotKeys = null;
+        RefreshHotkeysButton.IsEnabled = true;
     }
 
     private async Task RefreshProjectsAsync()

@@ -43,6 +43,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added system-wide `Ctrl+Shift+R` / `Ctrl+Shift+P` global hotkeys with Win32 registration, conflict reporting, and clean unregister on app unload.
 - Added a recorder health-panel shortcut status line so users can immediately see whether global hotkeys are active or unavailable.
 - Added a `Retry shortcuts` action in recording health so global-hotkey registration can be retried after startup conflicts without restarting.
+- Disabled `Retry shortcuts` automatically when global hotkeys are active and re-enabled it when registration is unavailable.
 
 ### Research
 
