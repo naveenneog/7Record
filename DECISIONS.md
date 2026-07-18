@@ -287,3 +287,14 @@ An installed MSIX requests programmatic graphics-capture access and selects the 
 7Record remains a native .NET/WinUI application. A future `npx` package is a thin installer/launcher: detect Windows architecture, download the matching signed 7Record MSIX release, verify its checksum/signature, install it, and launch `7Record`.
 
 The npm package must not reimplement capture in Node.js or bundle an unsigned executable. Publishing it is gated on producing signed versioned MSIX release artifacts.
+
+## D-033: Recording lifecycle orchestration
+
+**Status:** Accepted
+**Date:** 2026-07-18
+
+`SevenRecord.Recording` owns a small synchronous, revisioned lifecycle state machine. A new Windows recording layer will own async command serialization and one private active-session aggregate for the project clock, pause mapping, screen, audio, camera, cursor, publication, and teardown.
+
+All stop causes converge on one stop task. Screen/audio are mandatory; camera/cursor failures are structured warnings and cannot prevent mandatory source finalization. One session-owned project writer will become the sole journal and sequence authority.
+
+Raw source publication and resource disposal define recording stop. Loading detection, cursor zoom planning, audio repair planning, and other analysis run as a separate idempotent project pipeline so another recording can start without waiting for post-processing.

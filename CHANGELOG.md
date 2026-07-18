@@ -56,6 +56,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Simplified the recorder around one `Record` action: the camera overlay is on by default, the first enumerated/default camera starts automatically, and no camera pre-configuration is required.
 - Added installed-MSIX primary-display auto-selection with programmatic capture permission while retaining `Choose application or display` for window/display selection.
 - Kept the unpackaged development build safe: Record opens the Windows source picker and continues immediately after selection.
+- Completed the recording-orchestration architecture spike: accepted a neutral lifecycle state machine, Windows controller/active-session boundary, single-flight teardown, one journal owner, optional-source failure isolation, and separate post-processing pipeline.
 
 ### Research
 
