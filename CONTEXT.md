@@ -1,6 +1,18 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-18 09:02 IST
+Last updated: 2026-07-18 09:07 IST
+
+## Resume Here (deadline checkpoint)
+
+- Scheduled loop `#2` was stopped at/after the 09:06 IST deadline.
+- Current branch: `master` (clean working tree).
+- Latest completed slices focused on capture-clock/audio sync telemetry hardening:
+  - per-source mic/system health tracking in UI,
+  - warning thresholds for drift/discontinuities/missing duration,
+  - warning detail metrics (ms, ppm, missing duration),
+  - immediate warning re-evaluation on resume,
+  - readiness refresh after stop to clear stale live telemetry.
+- Recommended next feature: editor/export hardening with targeted tests for the new audio warning behavior in `MainPage` orchestration.
 
 ## Mission
 
