@@ -2,6 +2,15 @@
 
 All notable work, attempted approaches, failures, and decisions are recorded here so the project can resume without repeating failed paths.
 
+## 2026-07-20
+
+### Added
+
+- Extracted cursor zoom, loading speed-up, and audio repair generation into a rerunnable project post-processing pipeline.
+- Made generated automation identifiers deterministic and plan writes atomic/unchanged-aware so repeated processing produces byte-for-byte stable artifacts.
+- Moved smart-edit processing off the recording Stop path so recorder controls and the next capture are not blocked by FFmpeg analysis.
+- Added stage-isolation and idempotence regression tests, including malformed-input recovery and worker-output normalization.
+
 ## 2026-07-17
 
 ### Added

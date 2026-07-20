@@ -45,7 +45,15 @@ public static class MediaWorkerLoadingClient
 
             Task<string> output = worker.StandardOutput.ReadToEndAsync(cancellationToken);
             Task<string> error = worker.StandardError.ReadToEndAsync(cancellationToken);
-            await worker.WaitForExitAsync(cancellationToken);
+            try
+            {
+                await worker.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                TerminateWorker(worker);
+                throw;
+            }
             string json = await output;
             string standardError = await error;
             LoadingDetectionWorkerResult? result =
@@ -73,6 +81,24 @@ public static class MediaWorkerLoadingClient
                 false,
                 0,
                 $"The media worker returned invalid JSON: {exception.Message}");
+        }
+    }
+
+    private static void TerminateWorker(Process worker)
+    {
+        try
+        {
+            if (!worker.HasExited)
+            {
+                worker.Kill(entireProcessTree: true);
+                worker.WaitForExit();
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (Win32Exception)
+        {
         }
     }
 }

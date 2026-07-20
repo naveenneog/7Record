@@ -35,11 +35,11 @@ public sealed partial class MainPage : Page, IDisposable
         TimeSpan.FromMilliseconds(40);
     private static readonly TimeSpan AudioMissingWarningThreshold =
         TimeSpan.FromMilliseconds(100);
-    private static readonly JsonSerializerOptions AudioRepairSerializerOptions =
-        new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private static readonly JsonSerializerOptions RenderPlanSerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
+    private readonly ProjectPostProcessingPipeline _postProcessingPipeline = new();
+    private readonly CancellationTokenSource _postProcessingCancellation = new();
     private readonly RecorderStateMachine _recorderState = new();
     private readonly DispatcherTimer _recordingUiTimer;
     private readonly object _stopCaptureGate = new();
@@ -56,6 +56,7 @@ public sealed partial class MainPage : Page, IDisposable
     private AudioCaptureHealth? _microphoneHealth;
     private AudioCaptureHealth? _systemAudioHealth;
     private bool _cameraEnabled = true;
+    private bool _disposed;
     private bool _updatingCameraToggle;
     private GlobalHotKeyService? _globalHotKeys;
     private WindowsRecordingSession? _recordingSession;
@@ -66,6 +67,7 @@ public sealed partial class MainPage : Page, IDisposable
     private string? _currentPreviewPath;
     private TimelineDocument? _currentTimeline;
     private CaptionEditSession? _captionEditSession;
+    private string? _latestPostProcessingProject;
     private Task? _stopCaptureTask;
     private readonly HashSet<string> _disabledAutomation =
         new(StringComparer.Ordinal);
@@ -1076,6 +1078,7 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        _postProcessingCancellation.Cancel();
         _recordingUiTimer.Stop();
         ProjectPreviewPlayer.Source = null;
         DisposeGlobalHotKeys();
@@ -1084,10 +1087,18 @@ public sealed partial class MainPage : Page, IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _postProcessingCancellation.Cancel();
         _recordingUiTimer.Stop();
         _recordingUiTimer.Tick -= OnRecordingUiTimerTick;
         _recorderState.StateChanged -= OnRecorderStateChanged;
         DisposeGlobalHotKeys();
+        _postProcessingCancellation.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -1631,74 +1642,6 @@ public sealed partial class MainPage : Page, IDisposable
                 .ToArray();
             finalizationFailed = errors.Length > 0 || result.Screen is null;
 
-            List<string> processingWarnings = [];
-            if (result.Cursor is not null)
-            {
-                try
-                {
-                    IReadOnlyList<CursorZoomEvent> zooms =
-                        CursorZoomPlanner.CreatePlan(result.Cursor);
-                    string zoomPath = Path.Combine(
-                        result.ProjectRoot,
-                        "cursor-zoom-plan.json");
-                    string temporaryZoomPath = zoomPath + ".tmp";
-                    await File.WriteAllTextAsync(
-                        temporaryZoomPath,
-                        JsonSerializer.Serialize(
-                            zooms,
-                            AudioRepairSerializerOptions));
-                    File.Move(temporaryZoomPath, zoomPath, overwrite: true);
-                }
-                catch (Exception exception)
-                {
-                    processingWarnings.Add(
-                        $"Cursor analysis failed: {exception.Message}");
-                }
-            }
-
-            int loadingIntervals = 0;
-            if (result.Screen is not null)
-            {
-                try
-                {
-                    string workerPath = Path.Combine(
-                        AppContext.BaseDirectory,
-                        "MediaWorker",
-                        "SevenRecord.Media.Worker.exe");
-                    LoadingDetectionWorkerResult loading =
-                        await MediaWorkerLoadingClient.DetectAsync(
-                            workerPath,
-                            Path.Combine(
-                                result.ProjectRoot,
-                                result.Screen.RelativePath),
-                            Path.Combine(
-                                result.ProjectRoot,
-                                "loading-speed-plan.json"));
-                    loadingIntervals = loading.Succeeded ? loading.Intervals : 0;
-                }
-                catch (Exception exception)
-                {
-                    processingWarnings.Add(
-                        $"Loading analysis failed: {exception.Message}");
-                }
-            }
-
-            int repairEvents = 0;
-            if (result.Audio is not null)
-            {
-                try
-                {
-                    repairEvents = await SaveAudioRepairPlanAsync(
-                        result.ProjectRoot,
-                        result.Audio.Timing);
-                }
-                catch (Exception exception)
-                {
-                    processingWarnings.Add(
-                        $"Audio analysis failed: {exception.Message}");
-                }
-            }
-
             if (result.Screen is not null)
             {
                 FrameStatusText.Text =
@@ -1708,12 +1651,11 @@ public sealed partial class MainPage : Page, IDisposable
                     (result.Audio is null
                         ? "."
                         : $"; audio saved to {result.Audio.Microphone.RelativePath} and " +
-                          $"{result.Audio.SystemAudio.RelativePath}; {repairEvents} timing repairs suggested") +
+                          $"{result.Audio.SystemAudio.RelativePath}") +
                     (result.Camera is null
                         ? "."
                         : $"; camera saved to {result.Camera.Segment.RelativePath} with " +
-                          $"{result.Camera.Layout.Mode} layout.") +
-                    $" {loadingIntervals} waiting interval(s) suggested.";
+                          $"{result.Camera.Layout.Mode} layout.");
             }
             else
             {
@@ -1726,14 +1668,12 @@ public sealed partial class MainPage : Page, IDisposable
                 .Where(issue =>
                     issue.Severity is RecordingIssueSeverity.Warning)
                 .ToArray();
-            if (!finalizationFailed &&
-                (warnings.Length > 0 || processingWarnings.Count > 0))
+            if (!finalizationFailed && warnings.Length > 0)
             {
                 ReadinessInfoBar.Title = "Recording saved with warnings";
                 ReadinessInfoBar.Message = string.Join(
                     " ",
-                    warnings.Select(issue => issue.Message)
-                        .Concat(processingWarnings));
+                    warnings.Select(issue => issue.Message));
                 ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
             }
             else if (finalizationFailed)
@@ -1749,6 +1689,11 @@ public sealed partial class MainPage : Page, IDisposable
                 ReadinessInfoBar.Title = "Recording could not be finalized";
                 ReadinessInfoBar.Message = message;
                 ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+            }
+
+            if (!finalizationFailed)
+            {
+                StartProjectPostProcessing(result.ProjectRoot);
             }
         }
         catch (Exception exception)
@@ -1805,6 +1750,87 @@ public sealed partial class MainPage : Page, IDisposable
         return issue is null
             ? fallback
             : $"{fallback} {issue.Message}";
+    }
+
+    private void StartProjectPostProcessing(string projectRoot)
+    {
+        _latestPostProcessingProject = Path.GetFullPath(projectRoot);
+        FrameStatusText.Text += " Smart edits are processing in the background.";
+        _ = RunProjectPostProcessingAsync(_latestPostProcessingProject);
+    }
+
+    private async Task RunProjectPostProcessingAsync(string projectRoot)
+    {
+        CancellationToken cancellationToken = _postProcessingCancellation.Token;
+        try
+        {
+            ProjectPostProcessingResult result =
+                await _postProcessingPipeline.RunAsync(
+                    projectRoot,
+                    Path.Combine(
+                        AppContext.BaseDirectory,
+                        "MediaWorker",
+                        "SevenRecord.Media.Worker.exe"),
+                    cancellationToken);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_disposed ||
+                    !string.Equals(
+                        _latestPostProcessingProject,
+                        result.ProjectRoot,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    _recorderState.Snapshot.State is not RecorderState.Idle)
+                {
+                    return;
+                }
+
+                ProjectPostProcessingStageResult[] failures = result.Stages
+                    .Where(stage =>
+                        stage.State is ProjectPostProcessingStageState.Failed)
+                    .ToArray();
+                if (failures.Length == 0)
+                {
+                    FrameStatusText.Text =
+                        $"Smart edits ready: {result.SuggestedEdits} suggestion(s).";
+                    return;
+                }
+
+                FrameStatusText.Text =
+                    "Recording saved; some smart edits could not be generated.";
+                ReadinessInfoBar.Title = "Smart edits need attention";
+                ReadinessInfoBar.Message = string.Join(
+                    " ",
+                    failures.Select(failure =>
+                        $"{failure.Stage}: {failure.Message}"));
+                ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+            });
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_disposed ||
+                    !string.Equals(
+                        _latestPostProcessingProject,
+                        projectRoot,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    _recorderState.Snapshot.State is not RecorderState.Idle)
+                {
+                    return;
+                }
+
+                FrameStatusText.Text =
+                    "Recording saved; smart-edit processing stopped unexpectedly.";
+                ReadinessInfoBar.Title = "Smart edits need attention";
+                ReadinessInfoBar.Message = exception.Message;
+                ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+            });
+        }
     }
 
     private void OnAudioHealthChanged(AudioCaptureHealth health)
@@ -2085,19 +2111,4 @@ public sealed partial class MainPage : Page, IDisposable
         return name;
     }
 
-    private static async Task<int> SaveAudioRepairPlanAsync(
-        string projectRoot,
-        SevenRecord.Domain.Audio.AudioTimingManifest timing)
-    {
-        IReadOnlyList<SevenRecord.Domain.Audio.AudioRepairEvent> repairs =
-            AudioRepairPlanner.CreatePlan(timing);
-        string path = Path.Combine(projectRoot, "audio-repair-plan.json");
-        string temporaryPath = path + ".tmp";
-        string json = JsonSerializer.Serialize(
-            repairs,
-            AudioRepairSerializerOptions);
-        await File.WriteAllTextAsync(temporaryPath, json);
-        File.Move(temporaryPath, path, overwrite: true);
-        return repairs.Count;
-    }
 }

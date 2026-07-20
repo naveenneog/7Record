@@ -1,6 +1,6 @@
 namespace SevenRecord.Recording;
 
-internal static class RecordingPathGuard
+public static class RecordingPathGuard
 {
     public static string ResolveWithinRoot(string projectRoot, string relativePath)
     {

@@ -27,5 +27,8 @@ public sealed class CursorZoomPlannerTests
         Assert.AreEqual(0.25d, zoom.CenterX);
         Assert.AreEqual(0.75d, zoom.CenterY);
         Assert.AreEqual(1.8d, zoom.Scale);
+        Assert.AreEqual(
+            zoom.Id,
+            CursorZoomPlanner.CreatePlan(document).Single().Id);
     }
 }

@@ -20,6 +20,11 @@ public sealed class FfmpegLoadingDetectorTests
         Assert.AreEqual(TimeSpan.FromSeconds(1.25), result.Start);
         Assert.AreEqual(TimeSpan.FromSeconds(3.5), result.Duration);
         Assert.AreEqual(4d, result.Speed);
+        Assert.AreEqual(
+            result.Id,
+            FfmpegLoadingDetector.Parse(
+                log,
+                TimeSpan.FromSeconds(2)).Single().Id);
     }
 
     [TestMethod]

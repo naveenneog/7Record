@@ -18,8 +18,8 @@ public static class CursorZoomPlanner
 
         return document.Events
             .Where(item => item.Kind is CursorEventKind.Click)
-            .Select(item => new CursorZoomEvent(
-                Guid.NewGuid().ToString("N"),
+            .Select((item, index) => new CursorZoomEvent(
+                $"cursor-zoom-{index:D4}-{item.ProjectTime.Ticks:x16}",
                 item.ProjectTime > TimeSpan.FromMilliseconds(200)
                     ? item.ProjectTime - TimeSpan.FromMilliseconds(200)
                     : TimeSpan.Zero,

@@ -1,0 +1,310 @@
+using System.Text;
+using System.Text.Json;
+using SevenRecord.Domain.Audio;
+using SevenRecord.Domain.Input;
+using SevenRecord.Domain.Video;
+using SevenRecord.Recording;
+
+namespace SevenRecord.Analysis;
+
+public enum ProjectPostProcessingStageState
+{
+    Completed,
+    Skipped,
+    Failed,
+}
+
+public sealed record ProjectPostProcessingStageResult(
+    string Stage,
+    ProjectPostProcessingStageState State,
+    int SuggestedEdits,
+    bool Changed,
+    string? Message);
+
+public sealed record ProjectPostProcessingResult(
+    string ProjectRoot,
+    IReadOnlyList<ProjectPostProcessingStageResult> Stages)
+{
+    public bool Succeeded =>
+        Stages.All(stage => stage.State is not ProjectPostProcessingStageState.Failed);
+
+    public int SuggestedEdits => Stages.Sum(stage => stage.SuggestedEdits);
+}
+
+public delegate Task<LoadingDetectionWorkerResult> LoadingDetectionRunner(
+    string workerPath,
+    string screenMediaPath,
+    string outputJsonPath,
+    CancellationToken cancellationToken);
+
+public sealed class ProjectPostProcessingPipeline
+{
+    public const string AudioRepairStage = "audio-repair";
+    public const string CursorZoomStage = "cursor-zoom";
+    public const string LoadingSpeedStage = "loading-speed";
+
+    private static readonly JsonSerializerOptions SerializerOptions =
+        new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(false);
+    private readonly LoadingDetectionRunner _loadingDetectionRunner;
+
+    public ProjectPostProcessingPipeline(
+        LoadingDetectionRunner? loadingDetectionRunner = null)
+    {
+        _loadingDetectionRunner =
+            loadingDetectionRunner ?? MediaWorkerLoadingClient.DetectAsync;
+    }
+
+    public async Task<ProjectPostProcessingResult> RunAsync(
+        string projectRoot,
+        string? mediaWorkerPath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
+        string fullProjectRoot = Path.GetFullPath(projectRoot);
+        if (!Directory.Exists(fullProjectRoot))
+        {
+            throw new DirectoryNotFoundException(
+                $"Recording project '{fullProjectRoot}' does not exist.");
+        }
+
+        List<ProjectPostProcessingStageResult> stages = [];
+        cancellationToken.ThrowIfCancellationRequested();
+        stages.Add(
+            await RunCursorZoomStageAsync(fullProjectRoot, cancellationToken));
+        cancellationToken.ThrowIfCancellationRequested();
+        stages.Add(
+            await RunLoadingSpeedStageAsync(
+                fullProjectRoot,
+                mediaWorkerPath,
+                cancellationToken));
+        cancellationToken.ThrowIfCancellationRequested();
+        stages.Add(
+            await RunAudioRepairStageAsync(fullProjectRoot, cancellationToken));
+        return new ProjectPostProcessingResult(fullProjectRoot, stages);
+    }
+
+    private static async Task<ProjectPostProcessingStageResult> RunCursorZoomStageAsync(
+        string projectRoot,
+        CancellationToken cancellationToken)
+    {
+        string inputPath = Path.Combine(projectRoot, "cursor-events.json");
+        if (!File.Exists(inputPath))
+        {
+            return Skipped(CursorZoomStage, "Cursor metadata is unavailable.");
+        }
+
+        try
+        {
+            CursorMetadataDocument document =
+                await ReadRequiredJsonAsync<CursorMetadataDocument>(
+                    inputPath,
+                    cancellationToken);
+            IReadOnlyList<CursorZoomEvent> zooms =
+                CursorZoomPlanner.CreatePlan(document);
+            bool changed = await WriteJsonIfChangedAsync(
+                Path.Combine(projectRoot, "cursor-zoom-plan.json"),
+                zooms,
+                cancellationToken);
+            return Completed(CursorZoomStage, zooms.Count, changed);
+        }
+        catch (Exception exception) when (IsStageFailure(exception))
+        {
+            return Failed(CursorZoomStage, exception);
+        }
+    }
+
+    private async Task<ProjectPostProcessingStageResult> RunLoadingSpeedStageAsync(
+        string projectRoot,
+        string? mediaWorkerPath,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(mediaWorkerPath) ||
+            !File.Exists(mediaWorkerPath))
+        {
+            return Skipped(
+                LoadingSpeedStage,
+                "The media worker is unavailable.");
+        }
+
+        string journalPath = Path.Combine(projectRoot, "recording.journal");
+        if (!File.Exists(journalPath))
+        {
+            return Skipped(LoadingSpeedStage, "The recording journal is unavailable.");
+        }
+
+        string outputPath = Path.Combine(projectRoot, "loading-speed-plan.json");
+        string workerOutputPath =
+            outputPath + $".worker-{Guid.NewGuid():N}.tmp";
+        try
+        {
+            using RecordingJournal journal = new(journalPath);
+            RecordingJournalReplay replay =
+                await journal.ReplayAsync(cancellationToken);
+            RecordingSegmentEntry? screen = replay.Entries
+                .Where(entry =>
+                    string.Equals(
+                        entry.SourceId,
+                        "screen",
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderBy(entry => entry.Sequence)
+                .FirstOrDefault();
+            if (screen is null)
+            {
+                return Skipped(LoadingSpeedStage, "No screen source was published.");
+            }
+
+            string screenPath = RecordingPathGuard.ResolveWithinRoot(
+                projectRoot,
+                screen.RelativePath);
+            if (!File.Exists(screenPath))
+            {
+                throw new FileNotFoundException(
+                    "The screen source referenced by the journal is missing.",
+                    screenPath);
+            }
+
+            File.Delete(workerOutputPath);
+            LoadingDetectionWorkerResult workerResult =
+                await _loadingDetectionRunner(
+                    Path.GetFullPath(mediaWorkerPath),
+                    screenPath,
+                    workerOutputPath,
+                    cancellationToken);
+            if (!workerResult.Succeeded)
+            {
+                return new ProjectPostProcessingStageResult(
+                    LoadingSpeedStage,
+                    ProjectPostProcessingStageState.Failed,
+                    0,
+                    false,
+                    workerResult.Error ?? "Loading detection failed.");
+            }
+
+            LoadingSpeedEvent[] events =
+                await ReadRequiredJsonAsync<LoadingSpeedEvent[]>(
+                    workerOutputPath,
+                    cancellationToken);
+            LoadingSpeedEvent[] normalized = events
+                .Select((item, index) => item with
+                {
+                    Id = $"loading-{index:D4}-{item.Start.Ticks:x16}",
+                })
+                .ToArray();
+            bool changed = await WriteJsonIfChangedAsync(
+                outputPath,
+                normalized,
+                cancellationToken);
+            File.Delete(workerOutputPath);
+            return Completed(LoadingSpeedStage, normalized.Length, changed);
+        }
+        catch (Exception exception) when (IsStageFailure(exception))
+        {
+            return Failed(LoadingSpeedStage, exception);
+        }
+    }
+
+    private static async Task<ProjectPostProcessingStageResult> RunAudioRepairStageAsync(
+        string projectRoot,
+        CancellationToken cancellationToken)
+    {
+        string inputPath = Path.Combine(projectRoot, "audio-timing.json");
+        if (!File.Exists(inputPath))
+        {
+            return Skipped(AudioRepairStage, "Audio timing metadata is unavailable.");
+        }
+
+        try
+        {
+            AudioTimingManifest manifest =
+                await ReadRequiredJsonAsync<AudioTimingManifest>(
+                    inputPath,
+                    cancellationToken);
+            IReadOnlyList<AudioRepairEvent> repairs =
+                AudioRepairPlanner.CreatePlan(manifest);
+            bool changed = await WriteJsonIfChangedAsync(
+                Path.Combine(projectRoot, "audio-repair-plan.json"),
+                repairs,
+                cancellationToken);
+            return Completed(AudioRepairStage, repairs.Count, changed);
+        }
+        catch (Exception exception) when (IsStageFailure(exception))
+        {
+            return Failed(AudioRepairStage, exception);
+        }
+    }
+
+    private static async Task<T> ReadRequiredJsonAsync<T>(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        string json = await File.ReadAllTextAsync(path, cancellationToken);
+        return JsonSerializer.Deserialize<T>(json, SerializerOptions) ??
+            throw new InvalidDataException(
+                $"'{Path.GetFileName(path)}' is empty or invalid.");
+    }
+
+    private static async Task<bool> WriteJsonIfChangedAsync<T>(
+        string path,
+        T value,
+        CancellationToken cancellationToken)
+    {
+        string json = JsonSerializer.Serialize(value, SerializerOptions);
+        if (File.Exists(path))
+        {
+            string existing = await File.ReadAllTextAsync(path, cancellationToken);
+            if (string.Equals(existing, json, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        string temporaryPath = path + $".{Guid.NewGuid():N}.tmp";
+        await File.WriteAllTextAsync(
+            temporaryPath,
+            json,
+            Utf8WithoutBom,
+            cancellationToken);
+        File.Move(temporaryPath, path, overwrite: true);
+        return true;
+    }
+
+    private static bool IsStageFailure(Exception exception) =>
+        exception is IOException or
+            UnauthorizedAccessException or
+            JsonException or
+            InvalidDataException or
+            InvalidOperationException or
+            ArgumentException;
+
+    private static ProjectPostProcessingStageResult Completed(
+        string stage,
+        int suggestedEdits,
+        bool changed) =>
+        new(
+            stage,
+            ProjectPostProcessingStageState.Completed,
+            suggestedEdits,
+            changed,
+            changed ? "Plan updated." : "Plan is already current.");
+
+    private static ProjectPostProcessingStageResult Skipped(
+        string stage,
+        string message) =>
+        new(
+            stage,
+            ProjectPostProcessingStageState.Skipped,
+            0,
+            false,
+            message);
+
+    private static ProjectPostProcessingStageResult Failed(
+        string stage,
+        Exception exception) =>
+        new(
+            stage,
+            ProjectPostProcessingStageState.Failed,
+            0,
+            false,
+            exception.Message);
+}

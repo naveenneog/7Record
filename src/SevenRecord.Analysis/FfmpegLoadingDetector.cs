@@ -104,7 +104,7 @@ public static partial class FfmpegLoadingDetector
             {
                 events.Add(
                     new LoadingSpeedEvent(
-                        Guid.NewGuid().ToString("N"),
+                        CreateEventId(events.Count, TimeSpan.FromSeconds(start.Value)),
                         TimeSpan.FromSeconds(start.Value),
                         duration,
                         Speed: 4,
@@ -121,7 +121,7 @@ public static partial class FfmpegLoadingDetector
             {
                 events.Add(
                     new LoadingSpeedEvent(
-                        Guid.NewGuid().ToString("N"),
+                        CreateEventId(events.Count, TimeSpan.FromSeconds(start.Value)),
                         TimeSpan.FromSeconds(start.Value),
                         duration,
                         Speed: 4,
@@ -191,6 +191,9 @@ public static partial class FfmpegLoadingDetector
 
     private static double ParseSeconds(string value) =>
         double.Parse(value, CultureInfo.InvariantCulture);
+
+    private static string CreateEventId(int index, TimeSpan start) =>
+        $"loading-{index:D4}-{start.Ticks:x16}";
 
     [GeneratedRegex(@"freeze_start:\s*(?<value>-?\d+(?:\.\d+)?)")]
     private static partial Regex FreezeStartRegex();
