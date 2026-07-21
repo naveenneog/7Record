@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using SevenRecord.Capture.Abstractions;
@@ -9,6 +10,7 @@ using Windows.Media.Capture;
 using Windows.Media.Capture.Frames;
 using Windows.Media;
 using Windows.Media.MediaProperties;
+using Windows.Foundation;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.Imaging;
 
@@ -26,6 +28,9 @@ public sealed record CameraRecordingResult(
 
 public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
 {
+    private const int PreviewFramesPerSecond = 6;
+    private const int PreviewMaximumHeight = 360;
+    private const int PreviewMaximumWidth = 640;
     private static readonly JsonSerializerOptions SerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -34,7 +39,8 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
     private readonly Direct3DSurfaceVideoEncoder _encoder;
     private readonly MediaFrameReader _reader;
     private readonly string _layoutPath;
-    private readonly PresenterLayoutSettings _layout;
+    private readonly object _layoutGate = new();
+    private PresenterLayoutSettings _layout;
     private readonly bool _ownsProjectWriter;
     private readonly RecordingPauseController _pauseController;
     private readonly SemaphoreSlim _processingGate = new(1, 1);
@@ -48,9 +54,13 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private long _frames;
     private long _droppedFrames;
+    private long _lastPreviewTimestamp;
     private bool _completed;
     private bool _disposed;
     private TimeSpan _duration;
+    private int _previewInFlight;
+    private CanvasRenderTarget? _previewTarget;
+    private Task _previewTask = Task.CompletedTask;
     private bool _stopped;
 
     private RecoverableCameraRecordingSession(
@@ -82,7 +92,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         _encoder = encoder;
         _projectWriter = projectWriter;
         _ownsProjectWriter = ownsProjectWriter;
-        _layout = layout;
+        _layout = layout.ConstrainToFrame();
         _temporaryPath = temporaryPath;
         _layoutPath = Path.Combine(projectRoot, "presenter-layout.json");
         _reader.FrameArrived += OnFrameArrived;
@@ -92,7 +102,22 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
 
     public int Height { get; }
 
+    public event Action<Exception>? PreviewFailed;
+
+    public event Action<SoftwareBitmapPreviewFrame>? PreviewFrameReady;
+
     public int Width { get; }
+
+    public PresenterLayoutSettings Layout
+    {
+        get
+        {
+            lock (_layoutGate)
+            {
+                return _layout;
+            }
+        }
+    }
 
     public static async Task<RecoverableCameraRecordingSession> CreateAsync(
         string projectRoot,
@@ -284,6 +309,15 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         return await PublishAsync(cancellationToken);
     }
 
+    public void UpdateLayout(PresenterLayoutSettings layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        lock (_layoutGate)
+        {
+            _layout = layout.ConstrainToFrame();
+        }
+    }
+
     public Task StopAsync(CancellationToken cancellationToken = default) =>
         StopAsync(
             _pauseController.Map(
@@ -305,6 +339,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         _shutdown.Cancel();
         await _processingGate.WaitAsync(cancellationToken);
         _processingGate.Release();
+        await _previewTask.WaitAsync(cancellationToken);
 
         if (_failure is not null)
         {
@@ -339,8 +374,9 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
             _duration,
             cancellationToken);
 
+        PresenterLayoutSettings layout = Layout;
         string temporaryLayoutPath = _layoutPath + ".tmp";
-        string layoutJson = JsonSerializer.Serialize(_layout, SerializerOptions);
+        string layoutJson = JsonSerializer.Serialize(layout, SerializerOptions);
         await File.WriteAllTextAsync(
             temporaryLayoutPath,
             layoutJson,
@@ -354,7 +390,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
             Height,
             Interlocked.Read(ref _frames),
             Interlocked.Read(ref _droppedFrames),
-            _layout,
+            layout,
             Path.GetFileName(_layoutPath));
     }
 
@@ -383,6 +419,23 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         _shutdown.Cancel();
         try
         {
+            await _processingGate.WaitAsync();
+            _processingGate.Release();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+        try
+        {
+            await _previewTask;
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+        try
+        {
             await _encoder.DisposeAsync();
         }
         catch (Exception exception)
@@ -390,6 +443,14 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
             failure = Combine(failure, exception);
         }
 
+        try
+        {
+            _previewTarget?.Dispose();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
         try
         {
             _renderTarget.Dispose();
@@ -496,19 +557,27 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 VideoFrame.CreateWithDirect3D11Surface(surface);
             using VideoFrame destinationFrame =
                 VideoFrame.CreateWithDirect3D11Surface(_renderTarget);
+            global::Windows.Graphics.DirectX.Direct3D11.Direct3DSurfaceDescription
+                surfaceDescription = surface.Description;
             BitmapBounds sourceBounds = new()
             {
-                Width = (uint)Width,
-                Height = (uint)Height,
+                Width = (uint)surfaceDescription.Width,
+                Height = (uint)surfaceDescription.Height,
+            };
+            BitmapBounds destinationBounds = new()
+            {
+                Width = (uint)_renderTarget.SizeInPixels.Width,
+                Height = (uint)_renderTarget.SizeInPixels.Height,
             };
             await sourceFrame.CopyToAsync(
                 destinationFrame,
                 sourceBounds,
-                sourceBounds);
+                destinationBounds);
             await _encoder.ProcessSurfaceAsync(
                 _renderTarget,
                 projectTime,
                 _shutdown.Token);
+            QueuePreviewFrame(projectTime);
             Interlocked.Increment(ref _frames);
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
@@ -523,5 +592,126 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         {
             _processingGate.Release();
         }
+    }
+
+    private void QueuePreviewFrame(TimeSpan projectTime)
+    {
+        if (PreviewFrameReady is null || !TryBeginPreview())
+        {
+            return;
+        }
+
+        try
+        {
+            (int width, int height) = ScaleToFit(
+                Width,
+                Height,
+                PreviewMaximumWidth,
+                PreviewMaximumHeight);
+            EnsurePreviewTarget(width, height);
+            using CanvasDrawingSession drawing =
+                _previewTarget!.CreateDrawingSession();
+            drawing.Clear(global::Windows.UI.Color.FromArgb(255, 0, 0, 0));
+            drawing.DrawImage(
+                _renderTarget,
+                new Rect(0, 0, width, height),
+                new Rect(0, 0, Width, Height));
+            _previewTask = PublishPreviewFrameAsync(
+                _previewTarget,
+                projectTime);
+        }
+        catch (Exception exception)
+        {
+            Interlocked.Exchange(ref _previewInFlight, 0);
+            PreviewFailed?.Invoke(exception);
+        }
+    }
+
+    private async Task PublishPreviewFrameAsync(
+        CanvasRenderTarget snapshot,
+        TimeSpan projectTime)
+    {
+        SoftwareBitmap? bitmap = null;
+        try
+        {
+            using SoftwareBitmap surfaceCopy =
+                await SoftwareBitmap.CreateCopyFromSurfaceAsync(snapshot);
+            bitmap = SoftwareBitmap.Convert(
+                surfaceCopy,
+                BitmapPixelFormat.Bgra8,
+                BitmapAlphaMode.Premultiplied);
+            if (!_shutdown.IsCancellationRequested)
+            {
+                Action<SoftwareBitmapPreviewFrame>? handler = PreviewFrameReady;
+                if (handler is not null)
+                {
+                    SoftwareBitmapPreviewFrame frame = new(bitmap, projectTime);
+                    bitmap = null;
+                    handler(frame);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            PreviewFailed?.Invoke(exception);
+        }
+        finally
+        {
+            bitmap?.Dispose();
+            Interlocked.Exchange(ref _previewInFlight, 0);
+        }
+    }
+
+    private void EnsurePreviewTarget(int width, int height)
+    {
+        if (_previewTarget is not null &&
+            ((int)_previewTarget.SizeInPixels.Width != width ||
+             (int)_previewTarget.SizeInPixels.Height != height))
+        {
+            _previewTarget.Dispose();
+            _previewTarget = null;
+        }
+        _previewTarget ??= new CanvasRenderTarget(
+            _device,
+            width,
+            height,
+            96,
+            DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            CanvasAlphaMode.Ignore);
+    }
+
+    private bool TryBeginPreview()
+    {
+        long now = Stopwatch.GetTimestamp();
+        long previous = Volatile.Read(ref _lastPreviewTimestamp);
+        if (previous != 0 &&
+            Stopwatch.GetElapsedTime(previous, now) <
+            TimeSpan.FromSeconds(1d / PreviewFramesPerSecond))
+        {
+            return false;
+        }
+        if (Interlocked.CompareExchange(ref _previewInFlight, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        Volatile.Write(ref _lastPreviewTimestamp, now);
+        return true;
+    }
+
+    private static (int Width, int Height) ScaleToFit(
+        int sourceWidth,
+        int sourceHeight,
+        int maximumWidth,
+        int maximumHeight)
+    {
+        double scale = Math.Min(
+            1,
+            Math.Min(
+                (double)maximumWidth / sourceWidth,
+                (double)maximumHeight / sourceHeight));
+        return (
+            Math.Max(1, (int)Math.Round(sourceWidth * scale)),
+            Math.Max(1, (int)Math.Round(sourceHeight * scale)));
     }
 }

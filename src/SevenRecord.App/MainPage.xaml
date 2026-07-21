@@ -211,6 +211,76 @@
                                     </Border>
                                 </Grid>
 
+                                <Grid
+                                    x:Name="LivePreviewSurface"
+                                    Grid.Row="1"
+                                    Background="#FF020202"
+                                    Visibility="Collapsed">
+                                    <Image
+                                        x:Name="ScreenPreviewImage"
+                                        AutomationProperties.Name="Live screen preview, waiting"
+                                        Stretch="Uniform" />
+
+                                    <Canvas
+                                        x:Name="CameraOverlayCanvas"
+                                        Background="Transparent"
+                                        SizeChanged="OnCameraOverlayCanvasSizeChanged">
+                                        <ContentControl
+                                            x:Name="CameraPreviewBubble"
+                                            AutomationProperties.HelpText="Drag to position the camera overlay. Use arrow keys for precise movement."
+                                            AutomationProperties.Name="Live camera overlay, waiting"
+                                            Background="{StaticResource StudioRaisedBrush}"
+                                            BorderBrush="{StaticResource StudioInkBrush}"
+                                            BorderThickness="2"
+                                            CornerRadius="999"
+                                            HorizontalContentAlignment="Stretch"
+                                            IsTabStop="True"
+                                            KeyDown="OnCameraPreviewBubbleKeyDown"
+                                            ManipulationMode="None"
+                                            Padding="0"
+                                            VerticalContentAlignment="Stretch"
+                                            Visibility="Collapsed">
+                                            <Grid>
+                                                <Image
+                                                    x:Name="CameraPreviewImage"
+                                                    AutomationProperties.Name="Camera video preview"
+                                                    Stretch="Uniform" />
+                                                <Grid
+                                                    x:Name="CameraPreviewPlaceholder"
+                                                    Background="{StaticResource StudioRaisedBrush}">
+                                                    <StackPanel
+                                                        HorizontalAlignment="Center"
+                                                        VerticalAlignment="Center"
+                                                        Spacing="6">
+                                                        <FontIcon
+                                                            HorizontalAlignment="Center"
+                                                            FontSize="24"
+                                                            Foreground="{StaticResource StudioMutedBrush}"
+                                                            Glyph="&#xE722;" />
+                                                        <TextBlock
+                                                            HorizontalAlignment="Center"
+                                                            Style="{StaticResource MetaTextStyle}"
+                                                            Text="Starting camera" />
+                                                    </StackPanel>
+                                                </Grid>
+                                                <Border
+                                                    Margin="10"
+                                                    Padding="8,4"
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Top"
+                                                    Background="#CC111318"
+                                                    CornerRadius="5">
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="White"
+                                                        Text="CAMERA" />
+                                                </Border>
+                                            </Grid>
+                                        </ContentControl>
+                                    </Canvas>
+                                </Grid>
+
                                 <StackPanel
                                     x:Name="IdlePreviewContent"
                                     Grid.Row="1"

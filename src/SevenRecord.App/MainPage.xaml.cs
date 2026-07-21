@@ -5,7 +5,9 @@ using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Media.Core;
 using Windows.Storage;
 using Windows.System;
@@ -18,11 +20,13 @@ using SevenRecord.Domain.Captions;
 using SevenRecord.Domain.Input;
 using SevenRecord.Domain.Projects;
 using SevenRecord.Domain.Timeline;
+using SevenRecord.Domain.Video;
 using SevenRecord.Editor;
 using SevenRecord.Export;
 using SevenRecord.Infrastructure;
 using SevenRecord.Input.Windows;
 using SevenRecord.Media;
+using SevenRecord.Media.Windows;
 using SevenRecord.Recording;
 using SevenRecord.Recording.Windows;
 using SevenRecord.Transcription;
@@ -55,6 +59,9 @@ public sealed partial class MainPage : Page, IDisposable
     ]);
     private AudioCaptureHealth? _microphoneHealth;
     private AudioCaptureHealth? _systemAudioHealth;
+    private PresenterLayoutSettings _cameraLayout =
+        PresenterLayoutSettings.DefaultOverlay;
+    private bool _cameraOverlayDragging;
     private bool _cameraEnabled = true;
     private bool _disposed;
     private bool _updatingCameraToggle;
@@ -64,6 +71,18 @@ public sealed partial class MainPage : Page, IDisposable
     private TaskCompletionSource? _recordingStartupCompletion;
     private CaptureReadinessSnapshot? _lastSnapshot;
     private WindowsCaptureTarget? _selectedScreen;
+    private SoftwareBitmapSource? _screenPreviewSource;
+    private SoftwareBitmapSource? _cameraPreviewSource;
+    private int _screenPreviewPixelHeight;
+    private int _screenPreviewPixelWidth;
+    private SoftwareBitmapPreviewFrame? _pendingScreenPreview;
+    private SoftwareBitmapPreviewFrame? _pendingCameraPreview;
+    private int _screenPreviewDispatchPending;
+    private int _cameraPreviewDispatchPending;
+    private uint _cameraOverlayPointerId;
+    private Windows.Foundation.Point _cameraOverlayDragStart;
+    private double _cameraOverlayStartX;
+    private double _cameraOverlayStartY;
     private string? _currentPreviewPath;
     private TimelineDocument? _currentTimeline;
     private CaptionEditSession? _captionEditSession;
@@ -75,6 +94,26 @@ public sealed partial class MainPage : Page, IDisposable
     public MainPage()
     {
         InitializeComponent();
+        CameraOverlayCanvas.AddHandler(
+            UIElement.PointerPressedEvent,
+            new PointerEventHandler(OnCameraOverlayCanvasPointerPressed),
+            handledEventsToo: true);
+        CameraOverlayCanvas.AddHandler(
+            UIElement.PointerMovedEvent,
+            new PointerEventHandler(OnCameraOverlayCanvasPointerMoved),
+            handledEventsToo: true);
+        CameraOverlayCanvas.AddHandler(
+            UIElement.PointerReleasedEvent,
+            new PointerEventHandler(OnCameraOverlayCanvasPointerReleased),
+            handledEventsToo: true);
+        CameraOverlayCanvas.AddHandler(
+            UIElement.PointerCanceledEvent,
+            new PointerEventHandler(OnCameraOverlayCanvasPointerReleased),
+            handledEventsToo: true);
+        CameraOverlayCanvas.AddHandler(
+            UIElement.PointerCaptureLostEvent,
+            new PointerEventHandler(OnCameraOverlayCanvasPointerReleased),
+            handledEventsToo: true);
         _recordingUiTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1),
@@ -142,6 +181,7 @@ public sealed partial class MainPage : Page, IDisposable
         switch (snapshot.State)
         {
             case RecorderState.Starting:
+                ShowLivePreviewShell();
                 ProjectsNavigationItem.IsEnabled = false;
                 RecordingHealthExpander.IsExpanded = true;
                 _recordingUiTimer.Stop();
@@ -165,6 +205,7 @@ public sealed partial class MainPage : Page, IDisposable
                 break;
 
             case RecorderState.Recording:
+                ShowLivePreviewShell();
                 ProjectsNavigationItem.IsEnabled = false;
                 RecordingHealthExpander.IsExpanded = true;
                 RecordingStatusPill.Visibility = Visibility.Visible;
@@ -193,6 +234,7 @@ public sealed partial class MainPage : Page, IDisposable
                 break;
 
             case RecorderState.Paused:
+                ShowLivePreviewShell();
                 ProjectsNavigationItem.IsEnabled = false;
                 RecordingHealthExpander.IsExpanded = true;
                 RecordingStatusPill.Visibility = Visibility.Visible;
@@ -243,6 +285,7 @@ public sealed partial class MainPage : Page, IDisposable
                 break;
 
             case RecorderState.Faulted:
+                ResetLivePreview();
                 ProjectsNavigationItem.IsEnabled = true;
                 _recordingUiTimer.Stop();
                 RecordingStatusPill.Visibility = Visibility.Collapsed;
@@ -265,6 +308,7 @@ public sealed partial class MainPage : Page, IDisposable
                 break;
 
             default:
+                ResetLivePreview();
                 ProjectsNavigationItem.IsEnabled = true;
                 _recordingUiTimer.Stop();
                 RecordingStatusPill.Visibility = Visibility.Collapsed;
@@ -1159,7 +1203,8 @@ public sealed partial class MainPage : Page, IDisposable
                     new WindowsRecordingRequest(
                         CreateProjectRoot(),
                         _selectedScreen,
-                        _cameraEnabled),
+                        _cameraEnabled,
+                        _cameraLayout),
                     startupCancellation.Token);
             WindowsRecordingSession session = startResult.Session;
             if (_recorderState.Snapshot.State is RecorderState.Stopping)
@@ -1175,6 +1220,9 @@ public sealed partial class MainPage : Page, IDisposable
 
             session.ScreenHealthChanged += OnCaptureHealthChanged;
             session.AudioHealthChanged += OnAudioHealthChanged;
+            session.ScreenPreviewFrameReady += OnScreenPreviewFrameReady;
+            session.CameraPreviewFrameReady += OnCameraPreviewFrameReady;
+            session.PreviewFailed += OnPreviewFailed;
             session.CaptureClosed += OnCaptureClosed;
             session.CaptureFailed += OnCaptureFailed;
             _recordingSession = session;
@@ -1233,6 +1281,7 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 CameraStatusText.Text =
                     IssueMessage(sourceWarnings, "camera", "Camera is unavailable.");
+                CameraPreviewBubble.Visibility = Visibility.Collapsed;
             }
         }
         catch (OperationCanceledException)
@@ -1626,6 +1675,9 @@ public sealed partial class MainPage : Page, IDisposable
         _recordingSession = null;
         session.ScreenHealthChanged -= OnCaptureHealthChanged;
         session.AudioHealthChanged -= OnAudioHealthChanged;
+        session.ScreenPreviewFrameReady -= OnScreenPreviewFrameReady;
+        session.CameraPreviewFrameReady -= OnCameraPreviewFrameReady;
+        session.PreviewFailed -= OnPreviewFailed;
         session.CaptureClosed -= OnCaptureClosed;
         session.CaptureFailed -= OnCaptureFailed;
         _microphoneHealth = null;
@@ -1736,6 +1788,361 @@ public sealed partial class MainPage : Page, IDisposable
         string projectName =
             $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
         return Path.Combine(videos, "7Record", "Projects", projectName);
+    }
+
+    private void OnScreenPreviewFrameReady(SoftwareBitmapPreviewFrame frame)
+    {
+        Interlocked.Exchange(ref _pendingScreenPreview, frame)?.Dispose();
+        QueueScreenPreviewDispatch();
+    }
+
+    private void OnCameraPreviewFrameReady(SoftwareBitmapPreviewFrame frame)
+    {
+        Interlocked.Exchange(ref _pendingCameraPreview, frame)?.Dispose();
+        QueueCameraPreviewDispatch();
+    }
+
+    private void QueueScreenPreviewDispatch()
+    {
+        if (Interlocked.CompareExchange(
+                ref _screenPreviewDispatchPending,
+                1,
+                0) != 0)
+        {
+            return;
+        }
+
+        if (!DispatcherQueue.TryEnqueue(ProcessPendingScreenPreview))
+        {
+            Interlocked.Exchange(ref _screenPreviewDispatchPending, 0);
+        }
+    }
+
+    private void QueueCameraPreviewDispatch()
+    {
+        if (Interlocked.CompareExchange(
+                ref _cameraPreviewDispatchPending,
+                1,
+                0) != 0)
+        {
+            return;
+        }
+
+        if (!DispatcherQueue.TryEnqueue(ProcessPendingCameraPreview))
+        {
+            Interlocked.Exchange(ref _cameraPreviewDispatchPending, 0);
+        }
+    }
+
+    private async void ProcessPendingScreenPreview()
+    {
+        SoftwareBitmapPreviewFrame? frame =
+            Interlocked.Exchange(ref _pendingScreenPreview, null);
+        try
+        {
+            if (_recordingSession is not null && frame is not null)
+            {
+                _screenPreviewPixelWidth = frame.Bitmap.PixelWidth;
+                _screenPreviewPixelHeight = frame.Bitmap.PixelHeight;
+                _screenPreviewSource = await UpdatePreviewSourceAsync(
+                    _screenPreviewSource,
+                    ScreenPreviewImage,
+                    frame);
+                LivePreviewSurface.Visibility = Visibility.Visible;
+                IdlePreviewContent.Visibility = Visibility.Collapsed;
+                AutomationProperties.SetName(
+                    ScreenPreviewImage,
+                    "Live screen preview, video active");
+                ApplyCameraOverlayLayout();
+            }
+        }
+        catch (Exception exception)
+        {
+            OnPreviewFailed("screen", exception);
+        }
+        finally
+        {
+            frame?.Dispose();
+            Interlocked.Exchange(ref _screenPreviewDispatchPending, 0);
+        }
+        if (Volatile.Read(ref _pendingScreenPreview) is not null)
+        {
+            QueueScreenPreviewDispatch();
+        }
+    }
+
+    private async void ProcessPendingCameraPreview()
+    {
+        SoftwareBitmapPreviewFrame? frame =
+            Interlocked.Exchange(ref _pendingCameraPreview, null);
+        try
+        {
+            if (_recordingSession is not null && frame is not null)
+            {
+                _cameraPreviewSource = await UpdatePreviewSourceAsync(
+                    _cameraPreviewSource,
+                    CameraPreviewImage,
+                    frame);
+                CameraPreviewPlaceholder.Visibility = Visibility.Collapsed;
+                AutomationProperties.SetName(
+                    CameraPreviewBubble,
+                    "Live camera overlay, video active");
+                CameraPreviewBubble.Visibility = _cameraEnabled
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+        }
+        catch (Exception exception)
+        {
+            OnPreviewFailed("camera", exception);
+        }
+        finally
+        {
+            frame?.Dispose();
+            Interlocked.Exchange(ref _cameraPreviewDispatchPending, 0);
+        }
+        if (Volatile.Read(ref _pendingCameraPreview) is not null)
+        {
+            QueueCameraPreviewDispatch();
+        }
+    }
+
+    private static async Task<SoftwareBitmapSource> UpdatePreviewSourceAsync(
+        SoftwareBitmapSource? source,
+        Image target,
+        SoftwareBitmapPreviewFrame frame)
+    {
+        if (source is null)
+        {
+            source = new SoftwareBitmapSource();
+            target.Source = source;
+        }
+
+        await source.SetBitmapAsync(frame.Bitmap);
+        return source;
+    }
+
+    private void ShowLivePreviewShell()
+    {
+        LivePreviewSurface.Visibility = Visibility.Visible;
+        IdlePreviewContent.Visibility = Visibility.Collapsed;
+        PreviewStage.StartBringIntoView(
+            new BringIntoViewOptions
+            {
+                AnimationDesired = false,
+                VerticalAlignmentRatio = 0,
+            });
+        CameraPreviewBubble.Visibility =
+            _cameraEnabled ? Visibility.Visible : Visibility.Collapsed;
+        CameraPreviewPlaceholder.Visibility =
+            CameraPreviewImage.Source is null
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        ApplyCameraOverlayLayout();
+    }
+
+    private void ResetLivePreview()
+    {
+        Interlocked.Exchange(ref _pendingScreenPreview, null)?.Dispose();
+        Interlocked.Exchange(ref _pendingCameraPreview, null)?.Dispose();
+        ScreenPreviewImage.Source = null;
+        CameraPreviewImage.Source = null;
+        _screenPreviewSource = null;
+        _cameraPreviewSource = null;
+        _screenPreviewPixelWidth = 0;
+        _screenPreviewPixelHeight = 0;
+        LivePreviewSurface.Visibility = Visibility.Collapsed;
+        IdlePreviewContent.Visibility = Visibility.Visible;
+        CameraPreviewBubble.Visibility = Visibility.Collapsed;
+        CameraPreviewPlaceholder.Visibility = Visibility.Visible;
+        AutomationProperties.SetName(
+            ScreenPreviewImage,
+            "Live screen preview, waiting");
+        AutomationProperties.SetName(
+            CameraPreviewBubble,
+            "Live camera overlay, waiting");
+    }
+
+    private void OnPreviewFailed(string source, Exception exception)
+    {
+        System.Diagnostics.Debug.WriteLine(
+            $"{source} preview failed: {exception}");
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_recordingSession is null ||
+                ReadinessInfoBar.Severity is InfoBarSeverity.Error)
+            {
+                return;
+            }
+
+            ReadinessInfoBar.Title = $"{source} preview unavailable";
+            ReadinessInfoBar.Message =
+                "Recording continues normally; only the live preview is affected. " +
+                exception.Message;
+            ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+        });
+    }
+
+    private void OnCameraOverlayCanvasSizeChanged(
+        object sender,
+        SizeChangedEventArgs e) =>
+        ApplyCameraOverlayLayout();
+
+    private void ApplyCameraOverlayLayout()
+    {
+        Windows.Foundation.Rect frameBounds = GetScreenPreviewBounds();
+        if (frameBounds.Width <= 0 || frameBounds.Height <= 0)
+        {
+            return;
+        }
+
+        _cameraLayout = _cameraLayout.ConstrainToFrame();
+        double width = frameBounds.Width * _cameraLayout.Width;
+        double height = frameBounds.Height * _cameraLayout.Height;
+        CameraPreviewBubble.Width = width;
+        CameraPreviewBubble.Height = height;
+        Canvas.SetLeft(
+            CameraPreviewBubble,
+            frameBounds.X +
+            Math.Clamp(
+                _cameraLayout.X * frameBounds.Width,
+                0,
+                frameBounds.Width - width));
+        Canvas.SetTop(
+            CameraPreviewBubble,
+            frameBounds.Y +
+            Math.Clamp(
+                _cameraLayout.Y * frameBounds.Height,
+                0,
+                frameBounds.Height - height));
+    }
+
+    private Windows.Foundation.Rect GetScreenPreviewBounds()
+    {
+        double canvasWidth = CameraOverlayCanvas.ActualWidth;
+        double canvasHeight = CameraOverlayCanvas.ActualHeight;
+        if (canvasWidth <= 0 ||
+            canvasHeight <= 0 ||
+            _screenPreviewPixelWidth <= 0 ||
+            _screenPreviewPixelHeight <= 0)
+        {
+            return new Windows.Foundation.Rect(
+                0,
+                0,
+                Math.Max(0, canvasWidth),
+                Math.Max(0, canvasHeight));
+        }
+
+        double scale = Math.Min(
+            canvasWidth / _screenPreviewPixelWidth,
+            canvasHeight / _screenPreviewPixelHeight);
+        double width = _screenPreviewPixelWidth * scale;
+        double height = _screenPreviewPixelHeight * scale;
+        return new Windows.Foundation.Rect(
+            (canvasWidth - width) / 2,
+            (canvasHeight - height) / 2,
+            width,
+            height);
+    }
+
+    private void OnCameraOverlayCanvasPointerPressed(
+        object sender,
+        PointerRoutedEventArgs e)
+    {
+        if (_recordingSession is null)
+        {
+            return;
+        }
+
+        Windows.Foundation.Point position =
+            e.GetCurrentPoint(CameraOverlayCanvas).Position;
+        double left = Canvas.GetLeft(CameraPreviewBubble);
+        double top = Canvas.GetTop(CameraPreviewBubble);
+        if (position.X < left ||
+            position.X > left + CameraPreviewBubble.ActualWidth ||
+            position.Y < top ||
+            position.Y > top + CameraPreviewBubble.ActualHeight)
+        {
+            return;
+        }
+
+        _cameraOverlayDragging = true;
+        _cameraOverlayPointerId = e.Pointer.PointerId;
+        _cameraOverlayDragStart = position;
+        _cameraOverlayStartX = _cameraLayout.X;
+        _cameraOverlayStartY = _cameraLayout.Y;
+        CameraOverlayCanvas.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void OnCameraOverlayCanvasPointerMoved(
+        object sender,
+        PointerRoutedEventArgs e)
+    {
+        if (!_cameraOverlayDragging ||
+            e.Pointer.PointerId != _cameraOverlayPointerId)
+        {
+            return;
+        }
+
+        Windows.Foundation.Point current =
+            e.GetCurrentPoint(CameraOverlayCanvas).Position;
+        Windows.Foundation.Rect frameBounds = GetScreenPreviewBounds();
+        MoveCameraOverlay(
+            _cameraOverlayStartX +
+                (current.X - _cameraOverlayDragStart.X) /
+                Math.Max(1, frameBounds.Width),
+            _cameraOverlayStartY +
+                (current.Y - _cameraOverlayDragStart.Y) /
+                Math.Max(1, frameBounds.Height));
+        e.Handled = true;
+    }
+
+    private void OnCameraOverlayCanvasPointerReleased(
+        object sender,
+        PointerRoutedEventArgs e)
+    {
+        if (!_cameraOverlayDragging ||
+            e.Pointer.PointerId != _cameraOverlayPointerId)
+        {
+            return;
+        }
+
+        _cameraOverlayDragging = false;
+        CameraOverlayCanvas.ReleasePointerCapture(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void OnCameraPreviewBubbleKeyDown(
+        object sender,
+        KeyRoutedEventArgs e)
+    {
+        const double keyboardStep = 0.01;
+        (double deltaX, double deltaY) = e.Key switch
+        {
+            VirtualKey.Left => (-keyboardStep, 0d),
+            VirtualKey.Right => (keyboardStep, 0d),
+            VirtualKey.Up => (0d, -keyboardStep),
+            VirtualKey.Down => (0d, keyboardStep),
+            _ => (0d, 0d),
+        };
+        if (deltaX == 0 && deltaY == 0)
+        {
+            return;
+        }
+
+        MoveCameraOverlay(
+            _cameraLayout.X + deltaX,
+            _cameraLayout.Y + deltaY);
+        e.Handled = true;
+    }
+
+    private void MoveCameraOverlay(double x, double y)
+    {
+        _cameraLayout = (_cameraLayout with { X = x, Y = y })
+            .ConstrainToFrame();
+        _recordingSession?.UpdateCameraLayout(_cameraLayout);
+        ApplyCameraOverlayLayout();
     }
 
     private static string IssueMessage(

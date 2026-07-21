@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using SevenRecord.Camera.Windows;
 using SevenRecord.Capture.Abstractions;
+using SevenRecord.Media.Windows;
 using Windows.Media.Capture.Frames;
 
 JsonSerializerOptions serializerOptions =
@@ -44,6 +45,18 @@ try
             projectRoot,
             clock,
             new RecordingPauseController());
+    TaskCompletionSource<SoftwareBitmapPreviewFrame> firstPreview =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+    int previewFrames = 0;
+    camera.PreviewFrameReady += frame =>
+    {
+        Interlocked.Increment(ref previewFrames);
+        firstPreview.TrySetResult(frame);
+    };
+    camera.PreviewFailed += exception =>
+        firstPreview.TrySetException(exception);
+    using SoftwareBitmapPreviewFrame preview = await firstPreview.Task.WaitAsync(
+        TimeSpan.FromSeconds(5));
     await Task.Delay(TimeSpan.FromSeconds(durationSeconds));
     CameraRecordingResult result = await camera.CompleteAsync();
 
@@ -58,6 +71,9 @@ try
             result.Height,
             result.Frames,
             result.DroppedFrames,
+            previewFrames,
+            previewWidth = preview.Bitmap.PixelWidth,
+            previewHeight = preview.Bitmap.PixelHeight,
             segment = result.Segment.RelativePath,
             result.Layout,
             result.LayoutPath,

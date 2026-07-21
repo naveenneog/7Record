@@ -57,6 +57,17 @@ public sealed class RenderPlanBuilderTests
                         TimeSpan.FromSeconds(5)),
                     "RoundedOverlay",
                     true)
+                {
+                    NumericData = new Dictionary<string, double>
+                    {
+                        ["mode"] = (double)SevenRecord.Domain.Video.PresenterLayoutMode.RoundedOverlay,
+                        ["x"] = 0.2,
+                        ["y"] = 0.3,
+                        ["width"] = 0.3,
+                        ["height"] = 0.4,
+                        ["cornerRadius"] = 0.5,
+                    },
+                }
             ]);
         RenderPlan plan = RenderPlanBuilder.Build(
             timeline,
@@ -70,6 +81,9 @@ public sealed class RenderPlanBuilderTests
         StringAssert.Contains(joined, "overlay=");
         StringAssert.Contains(joined, "amix=inputs=2");
         StringAssert.Contains(joined, "1920:1080");
+        StringAssert.Contains(joined, "scale=576:432");
+        StringAssert.Contains(joined, "overlay=384:324");
+        StringAssert.Contains(joined, "geq=");
     }
 
     [TestMethod]

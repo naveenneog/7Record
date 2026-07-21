@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using Microsoft.Graphics.Canvas;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Media;
 using SevenRecord.Media.Windows;
+using Windows.Foundation;
 using Windows.Graphics.DirectX;
+using Windows.Graphics.Imaging;
 using Windows.UI;
 
 namespace SevenRecord.Recording.Windows;
@@ -11,6 +14,9 @@ namespace SevenRecord.Recording.Windows;
 public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
 {
     private const int FramesPerSecond = 60;
+    private const int PreviewFramesPerSecond = 6;
+    private const int PreviewMaximumHeight = 540;
+    private const int PreviewMaximumWidth = 960;
     private const uint Bitrate = 12_000_000;
 
     private readonly int _encoderHeight;
@@ -23,13 +29,22 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
     private readonly SemaphoreSlim _surfaceGate = new(1, 1);
     private readonly string _temporaryPath;
     private bool _completed;
+    private CanvasDevice? _device;
     private CanvasRenderTarget? _encodeFrame;
     private bool _hasFrame;
     private CanvasRenderTarget? _latestFrame;
+    private long _lastPreviewTimestamp;
     private bool _pacingStarted;
     private Task _pacingTask = Task.CompletedTask;
+    private CanvasRenderTarget? _previewFrame;
+    private int _previewInFlight;
+    private Task _previewTask = Task.CompletedTask;
 
     public event Action<Exception>? Failed;
+
+    public event Action<Exception>? PreviewFailed;
+
+    public event Action<SoftwareBitmapPreviewFrame>? PreviewFrameReady;
 
     private SurfaceScreenSegmentRecorder(
         Direct3DSurfaceVideoEncoder encoder,
@@ -149,6 +164,16 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         {
             pacingFailure = exception;
         }
+        try
+        {
+            await _previewTask;
+        }
+        catch (Exception exception)
+        {
+            pacingFailure = pacingFailure is null
+                ? exception
+                : new AggregateException(pacingFailure, exception);
+        }
 
         await _encoder.CompleteAsync();
         if (pacingFailure is not null)
@@ -177,6 +202,16 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         {
             failure = exception;
         }
+        try
+        {
+            await _previewTask;
+        }
+        catch (Exception exception)
+        {
+            failure = failure is null
+                ? exception
+                : new AggregateException(failure, exception);
+        }
 
         try
         {
@@ -192,6 +227,7 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         {
             _encodeFrame?.Dispose();
             _latestFrame?.Dispose();
+            _previewFrame?.Dispose();
             _surfaceGate.Dispose();
             _shutdown.Dispose();
         }
@@ -204,6 +240,7 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
 
     private void EnsureFrameTargets(CanvasDevice device)
     {
+        _device ??= device;
         _latestFrame ??= CreateFrameTarget(device);
         _encodeFrame ??= CreateFrameTarget(device);
     }
@@ -216,6 +253,135 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
             96,
             DirectXPixelFormat.B8G8R8A8UIntNormalized,
             CanvasAlphaMode.Ignore);
+
+    private void QueuePreviewFrame(
+        CanvasBitmap source,
+        CanvasDevice device,
+        int sourceWidth,
+        int sourceHeight,
+        TimeSpan projectTime)
+    {
+        if (PreviewFrameReady is null || !TryBeginPreview())
+        {
+            return;
+        }
+
+        try
+        {
+            (int width, int height) = ScaleToFit(
+                sourceWidth,
+                sourceHeight,
+                PreviewMaximumWidth,
+                PreviewMaximumHeight);
+            EnsurePreviewTarget(device, width, height);
+            using CanvasDrawingSession drawing =
+                _previewFrame!.CreateDrawingSession();
+            drawing.Clear(Color.FromArgb(255, 0, 0, 0));
+            drawing.DrawImage(
+                source,
+                new Rect(0, 0, width, height),
+                new Rect(0, 0, sourceWidth, sourceHeight));
+            _previewTask = PublishPreviewFrameAsync(
+                _previewFrame,
+                projectTime);
+        }
+        catch (Exception exception)
+        {
+            Interlocked.Exchange(ref _previewInFlight, 0);
+            PreviewFailed?.Invoke(exception);
+        }
+    }
+
+    private async Task PublishPreviewFrameAsync(
+        CanvasRenderTarget snapshot,
+        TimeSpan projectTime)
+    {
+        SoftwareBitmap? bitmap = null;
+        try
+        {
+            using SoftwareBitmap surfaceCopy =
+                await SoftwareBitmap.CreateCopyFromSurfaceAsync(snapshot);
+            bitmap = SoftwareBitmap.Convert(
+                surfaceCopy,
+                BitmapPixelFormat.Bgra8,
+                BitmapAlphaMode.Premultiplied);
+            if (!_shutdown.IsCancellationRequested)
+            {
+                Action<SoftwareBitmapPreviewFrame>? handler = PreviewFrameReady;
+                if (handler is not null)
+                {
+                    SoftwareBitmapPreviewFrame frame = new(bitmap, projectTime);
+                    bitmap = null;
+                    handler(frame);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            PreviewFailed?.Invoke(exception);
+        }
+        finally
+        {
+            bitmap?.Dispose();
+            Interlocked.Exchange(ref _previewInFlight, 0);
+        }
+    }
+
+    private void EnsurePreviewTarget(
+        CanvasDevice device,
+        int width,
+        int height)
+    {
+        if (_previewFrame is not null &&
+            ((int)_previewFrame.SizeInPixels.Width != width ||
+             (int)_previewFrame.SizeInPixels.Height != height))
+        {
+            _previewFrame.Dispose();
+            _previewFrame = null;
+        }
+        _previewFrame ??= new CanvasRenderTarget(
+            device,
+            width,
+            height,
+            96,
+            DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            CanvasAlphaMode.Ignore);
+    }
+
+    private bool TryBeginPreview()
+    {
+        long now = Stopwatch.GetTimestamp();
+        long previous = Volatile.Read(ref _lastPreviewTimestamp);
+        if (previous != 0 &&
+            Stopwatch.GetElapsedTime(previous, now) <
+            TimeSpan.FromSeconds(1d / PreviewFramesPerSecond))
+        {
+            return false;
+        }
+        if (Interlocked.CompareExchange(ref _previewInFlight, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        Volatile.Write(ref _lastPreviewTimestamp, now);
+        return true;
+    }
+
+    private static (int Width, int Height) ScaleToFit(
+        int sourceWidth,
+        int sourceHeight,
+        int maximumWidth,
+        int maximumHeight)
+    {
+        double scale = Math.Min(
+            1,
+            Math.Min(
+                (double)maximumWidth / sourceWidth,
+                (double)maximumHeight / sourceHeight));
+        return (
+            Math.Max(1, (int)Math.Round(sourceWidth * scale)),
+            Math.Max(1, (int)Math.Round(sourceHeight * scale)));
+    }
 
     private async Task PaceFramesAsync()
     {
@@ -231,6 +397,8 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
                 }
 
                 bool hasFrame;
+                TimeSpan projectTime = _pauseController.Map(
+                    _projectClock.Normalize(QpcTimestamp.Now()));
                 await _surfaceGate.WaitAsync(_shutdown.Token);
                 try
                 {
@@ -240,6 +408,12 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
                         using CanvasDrawingSession drawing =
                             _encodeFrame!.CreateDrawingSession();
                         drawing.DrawImage(_latestFrame);
+                        QueuePreviewFrame(
+                            _latestFrame!,
+                            _device!,
+                            _encoderWidth,
+                            _encoderHeight,
+                            projectTime);
                     }
                 }
                 finally
@@ -252,8 +426,6 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
                     continue;
                 }
 
-                TimeSpan projectTime = _pauseController.Map(
-                    _projectClock.Normalize(QpcTimestamp.Now()));
                 await _encoder.ProcessSurfaceAsync(
                     _encodeFrame!,
                     projectTime,

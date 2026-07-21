@@ -18,7 +18,7 @@ Target: `src/SevenRecord.App/MainPage.xaml`
 | UX-02 | P1 | Capture safety | No persistent recording/paused/stopping indicator or elapsed time | Added state pill, label, timer, progress state, and dynamic UIA names | Fixed |
 | UX-03 | P1 | Information architecture | Recorder, health, projects, and editor in one long scroll | Native `NavigationView`; separate Recorder and Projects workspaces | Fixed |
 | UX-04 | P1 | Hierarchy | Three equal source cards competed with Record | One compact Sources rail beside the preview stage | Fixed |
-| UX-05 | P1 | Preview | Largest surface was an inert black rectangle | Dominant source/state stage with contextual action and profile footer | Fixed |
+| UX-05 | P1 | Preview | Largest surface was an inert black rectangle | Live screen preview with a full-stream camera bubble, explicit waiting states, and background-only frame conversion | Fixed |
 | UX-06 | P1 | Status comprehension | Health was undifferentiated text | Semantic icons, dynamic `InfoBar`, and health expansion during capture/warnings | Fixed |
 | QA-01 | P1 | Theme/contrast | Light-theme control text leaked onto custom dark surfaces | Coherent dark theme, contrast-theme resource overrides, Win32 title-bar system colors | Fixed |
 | QA-02 | P1 | Adaptivity | Fixed sidebar/padding/columns failed at 1024×720 | Compact native navigation and explicit responsive stacking | Fixed |
@@ -46,11 +46,15 @@ Target: `src/SevenRecord.App/MainPage.xaml`
 - Replaced raw local state colors with contrast-theme-aware brush aliases.
 - Replaced unstable WinRT title-bar contrast detection with Win32 system-color detection.
 - Added a purposeful Projects detail empty state.
+- Added live screen/camera preview without blocking the authoritative recording path.
+- Added pointer and keyboard camera placement with normalized layout persistence.
+- Replaced managed BGRA preview arrays with reusable GPU surfaces and disposable `SoftwareBitmap` frames.
+- Corrected redirected-camera framing to use actual frame-surface bounds.
 
 ## QA evidence
 
 - `dotnet build SevenRecord.slnx`: zero warnings/errors.
-- Full automated suite: 68 tests passed.
+- Full automated suite: 73 tests passed.
 - `tools/test-recorder-ui.ps1`: passed.
   - Record target: 44 DIP.
   - Recorder/Projects navigation targets: 40 DIP.
@@ -60,6 +64,7 @@ Target: `src/SevenRecord.App/MainPage.xaml`
   - Explicit project open action, inline Play control, and external-open action verified.
 - Camera probe: Surface Camera Front (redirected), 1280×720, 40 frames, 0 dropped.
 - Full camera-on capture harness: screen, microphone, system audio, and camera published successfully.
+- Live-preview capture harness: live screen and camera UIA states activated, camera placement persisted, and rounded export filter executed successfully.
 - Visual evidence:
   - `ui-final-postfix-recorder.png`
   - `ui-final-1024x720.png`

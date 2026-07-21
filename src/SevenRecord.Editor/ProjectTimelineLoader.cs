@@ -95,7 +95,18 @@ public static class ProjectTimelineLoader
                         TimelineTrackKind.Camera,
                         TimelineRange.FromStartAndDuration(TimeSpan.Zero, duration),
                         $"{layout.Mode} at {layout.X:P0}, {layout.Y:P0}",
-                        true));
+                        true)
+                    {
+                        NumericData = new Dictionary<string, double>
+                        {
+                            ["mode"] = (double)layout.Mode,
+                            ["x"] = layout.X,
+                            ["y"] = layout.Y,
+                            ["width"] = layout.Width,
+                            ["height"] = layout.Height,
+                            ["cornerRadius"] = layout.CornerRadius,
+                        },
+                    });
             }
         }
 

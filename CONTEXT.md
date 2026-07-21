@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-20 22:00 IST
+Last updated: 2026-07-21 13:45 IST
 
 ## Resume Here (deadline checkpoint)
 
@@ -118,10 +118,13 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Projects now expose explicit `Open recording` actions and an inline `MediaPlayerElement`; playback prefers the newest exported MP4 and falls back to the immutable screen source with clear camera/audio composition messaging.
 - `ProjectPostProcessingPipeline` now reloads persisted project artifacts and reruns cursor zoom, loading speed-up, and audio repair stages independently with deterministic IDs and atomic unchanged-aware writes.
 - Recording Stop now returns control after raw publication and launches smart-edit analysis in the background, so a new recording is not blocked by FFmpeg loading detection.
+- Recording now renders a throttled live screen preview plus a full-stream camera bubble using reusable GPU targets and disposable `SoftwareBitmap` frames; static windows continue previewing from the held-frame pacer.
+- The live camera bubble supports pointer/keyboard placement, persists normalized coordinates into `presenter-layout.json`, and the FFmpeg exporter consumes those coordinates and dimensions.
+- Camera copying uses each frame's actual Direct3D surface bounds, avoiding redirected-camera corner crops.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
-- Next recording feature: add throttled live screen/camera preview without stalling the authoritative GPU recording path.
+- Next camera feature: add a pre-record studio preview with camera zoom/crop/pan controls; follow with optional background blur and low-light/brightness enhancement.
 - Next distribution feature: produce signed versioned MSIX artifacts, then implement a thin `npx 7record` Windows installer/launcher that downloads, verifies, installs, and opens 7Record.
 
 ## Environment Observed

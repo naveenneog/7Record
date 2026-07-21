@@ -4,7 +4,9 @@ using SevenRecord.Camera.Windows;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Domain.Input;
+using SevenRecord.Domain.Video;
 using SevenRecord.Input.Windows;
+using SevenRecord.Media.Windows;
 
 namespace SevenRecord.Recording.Windows;
 
@@ -30,7 +32,8 @@ public sealed record WindowsRecordingIssue(
 public sealed record WindowsRecordingRequest(
     string ProjectRoot,
     WindowsCaptureTarget Target,
-    bool IncludeCamera);
+    bool IncludeCamera,
+    PresenterLayoutSettings CameraLayout);
 
 public sealed record WindowsRecordingStartResult(
     WindowsRecordingSession Session,
@@ -95,9 +98,16 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
         _capture.CaptureClosed += OnCaptureClosed;
         _capture.CaptureFailed += OnCaptureFailed;
         _screen.Failed += OnScreenFailed;
+        _screen.PreviewFailed += OnScreenPreviewFailed;
+        _screen.PreviewFrameReady += OnScreenPreviewFrameReady;
         if (_audio is not null)
         {
             _audio.HealthChanged += OnAudioHealthChanged;
+        }
+        if (_camera is not null)
+        {
+            _camera.PreviewFailed += OnCameraPreviewFailed;
+            _camera.PreviewFrameReady += OnCameraPreviewFrameReady;
         }
     }
 
@@ -107,7 +117,13 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
 
     public event Action<Exception>? CaptureFailed;
 
+    public event Action<SoftwareBitmapPreviewFrame>? CameraPreviewFrameReady;
+
+    public event Action<string, Exception>? PreviewFailed;
+
     public event Action<CaptureFrameHealthSnapshot>? ScreenHealthChanged;
+
+    public event Action<SoftwareBitmapPreviewFrame>? ScreenPreviewFrameReady;
 
     public TimeSpan ActiveDuration =>
         _pauseController.Map(
@@ -199,6 +215,7 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
                         projectClock,
                         pauseController,
                         projectWriter,
+                        layout: request.CameraLayout,
                         cancellationToken: cancellationToken);
                 }
                 catch (Exception exception) when (
@@ -270,6 +287,12 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
         _pauseController.Resume(rawTime);
     }
 
+    public void UpdateCameraLayout(PresenterLayoutSettings layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        _camera?.UpdateLayout(layout);
+    }
+
     public async Task<WindowsRecordingFinalizationResult> StopAsync(
         RecordingStopReason reason,
         CancellationToken cancellationToken = default)
@@ -312,9 +335,16 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
         _capture.CaptureClosed -= OnCaptureClosed;
         _capture.CaptureFailed -= OnCaptureFailed;
         _screen.Failed -= OnScreenFailed;
+        _screen.PreviewFailed -= OnScreenPreviewFailed;
+        _screen.PreviewFrameReady -= OnScreenPreviewFrameReady;
         if (_audio is not null)
         {
             _audio.HealthChanged -= OnAudioHealthChanged;
+        }
+        if (_camera is not null)
+        {
+            _camera.PreviewFailed -= OnCameraPreviewFailed;
+            _camera.PreviewFrameReady -= OnCameraPreviewFrameReady;
         }
 
         try
@@ -540,6 +570,21 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
         CaptureFailed?.Invoke(exception);
     }
 
+    private void OnCameraPreviewFailed(Exception exception) =>
+        PreviewFailed?.Invoke("camera", exception);
+
+    private void OnCameraPreviewFrameReady(SoftwareBitmapPreviewFrame frame)
+    {
+        Action<SoftwareBitmapPreviewFrame>? handler = CameraPreviewFrameReady;
+        if (handler is null)
+        {
+            frame.Dispose();
+            return;
+        }
+
+        handler(frame);
+    }
+
     private void OnScreenHealthChanged(CaptureFrameHealthSnapshot health) =>
         ScreenHealthChanged?.Invoke(health);
 
@@ -547,6 +592,21 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
     {
         _captureFailure = exception;
         CaptureFailed?.Invoke(exception);
+    }
+
+    private void OnScreenPreviewFailed(Exception exception) =>
+        PreviewFailed?.Invoke("screen", exception);
+
+    private void OnScreenPreviewFrameReady(SoftwareBitmapPreviewFrame frame)
+    {
+        Action<SoftwareBitmapPreviewFrame>? handler = ScreenPreviewFrameReady;
+        if (handler is null)
+        {
+            frame.Dispose();
+            return;
+        }
+
+        handler(frame);
     }
 
     private static WindowsRecordingIssue Error(

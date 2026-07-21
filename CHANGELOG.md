@@ -2,6 +2,23 @@
 
 All notable work, attempted approaches, failures, and decisions are recorded here so the project can resume without repeating failed paths.
 
+## 2026-07-21
+
+### Added
+
+- Added a throttled live screen preview driven by the existing 60 fps held-frame pacer, including static application windows that emit only one capture frame.
+- Added a live camera bubble with full-stream framing, rounded presentation, keyboard placement, pointer dragging, and persisted normalized layout metadata.
+- Added reusable GPU preview surfaces and disposable `SoftwareBitmap` leases so live preview avoids sustained large-object-heap allocation churn.
+- Updated camera capture to copy each frame's actual Direct3D surface bounds instead of configured dimensions, preventing redirected/rotated feeds from showing a corner crop.
+- Updated MP4 export to consume presenter-layout position, size, mode, and rounded-bubble metadata instead of hardcoding the camera at bottom-right.
+- Extended the camera probe and full capture harness to verify live screen preview, live camera preview, drag persistence, and all four recorded sources.
+
+### Fixed
+
+- Synchronized camera disposal with active frame processing and pending preview conversion.
+- Kept camera overlay placement relative to the visible letterboxed screen frame so preview and export coordinates match.
+- Moved overlay pointer capture to the preview canvas so dragging cannot be stolen by the recorder `ScrollViewer`.
+
 ## 2026-07-20
 
 ### Added

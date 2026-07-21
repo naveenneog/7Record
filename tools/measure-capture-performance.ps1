@@ -126,6 +126,31 @@ function Click-Element {
     [SevenRecordNativeMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
 }
 
+function Drag-Element {
+    param(
+        [System.Windows.Automation.AutomationElement]$Element,
+        [int]$DeltaX,
+        [int]$DeltaY
+    )
+
+    $process = Get-Process -Id $Element.Current.ProcessId
+    [SevenRecordNativeMouse]::SetForegroundWindow(
+        [IntPtr]$process.MainWindowHandle) | Out-Null
+    $bounds = $Element.Current.BoundingRectangle
+    $startX = [int]($bounds.X + $bounds.Width / 2)
+    $startY = [int]($bounds.Y + $bounds.Height / 2)
+    [SevenRecordNativeMouse]::SetCursorPos($startX, $startY) | Out-Null
+    [SevenRecordNativeMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 150
+    for ($step = 1; $step -le 10; $step++) {
+        [SevenRecordNativeMouse]::SetCursorPos(
+            $startX + [int]($DeltaX * $step / 10),
+            $startY + [int]($DeltaY * $step / 10)) | Out-Null
+        Start-Sleep -Milliseconds 40
+    }
+    [SevenRecordNativeMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+}
+
 function Get-CapturePickerWindows {
     $desktop = [System.Windows.Automation.AutomationElement]::RootElement
     $windows = $desktop.FindAll(
@@ -225,6 +250,15 @@ try {
     }
 
     $app = [System.Windows.Automation.AutomationElement]::FromHandle($appProcess.MainWindowHandle)
+    [SevenRecordNativeMouse]::SetWindowPos(
+        [IntPtr]$appProcess.MainWindowHandle,
+        [IntPtr]::Zero,
+        40,
+        30,
+        1440,
+        900,
+        0x0040) | Out-Null
+    Start-Sleep -Milliseconds 500
     $startRecording = Find-DescendantByAutomationId `
         -Root $app `
         -AutomationId "StartRecordingButton"
@@ -337,6 +371,70 @@ try {
     Wait-Until -TimeoutSeconds 45 -FailureMessage "Capture did not deliver a first frame." -Condition {
         $frameStatus.Current.Name -match "^\d[\d,]* frames"
     } | Out-Null
+    try {
+        $screenPreview = Wait-Until -TimeoutSeconds 20 -FailureMessage "Live screen preview did not become active." -Condition {
+            $candidate = Find-DescendantByAutomationId -Root $app -AutomationId "ScreenPreviewImage"
+            if ($candidate -and
+                -not $candidate.Current.IsOffscreen -and
+                $candidate.Current.Name -eq "Live screen preview, video active") {
+                $candidate
+            }
+        }
+    }
+    catch {
+        $screenStatus = Find-DescendantByAutomationId -Root $app -AutomationId "ScreenStatusText"
+        $recorderStatus = Find-DescendantByAutomationId -Root $app -AutomationId "ReadinessInfoBar"
+        $screenImage = Find-DescendantByAutomationId -Root $app -AutomationId "ScreenPreviewImage"
+        $previewState = if ($screenImage) {
+            "'$($screenImage.Current.Name)', offscreen=$($screenImage.Current.IsOffscreen)"
+        } else {
+            "not found"
+        }
+        throw "Live screen preview did not become active. Preview: $previewState. Screen: '$($screenStatus.Current.Name)'. Recorder: '$($recorderStatus.Current.Name)'."
+    }
+    try {
+        $cameraPreview = Wait-Until -TimeoutSeconds 20 -FailureMessage "Live camera overlay did not become active." -Condition {
+            $candidate = Find-DescendantByAutomationId -Root $app -AutomationId "CameraPreviewBubble"
+            if ($candidate -and
+                $candidate.Current.Name -eq "Live camera overlay, video active") {
+                $candidate
+            }
+        }
+    }
+    catch {
+        $cameraStatus = Find-DescendantByAutomationId -Root $app -AutomationId "CameraStatusText"
+        $recorderStatus = Find-DescendantByAutomationId -Root $app -AutomationId "ReadinessInfoBar"
+        $cameraBubble = Find-DescendantByAutomationId -Root $app -AutomationId "CameraPreviewBubble"
+        $bubbleState = if ($cameraBubble) {
+            "'$($cameraBubble.Current.Name)', offscreen=$($cameraBubble.Current.IsOffscreen)"
+        } else {
+            "not found"
+        }
+        throw "Live camera overlay did not become active. Bubble: $bubbleState. Camera: '$($cameraStatus.Current.Name)'. Recorder: '$($recorderStatus.Current.Name)'."
+    }
+    if ($cameraPreview.Current.IsOffscreen -or
+        [double]::IsNaN($cameraPreview.Current.BoundingRectangle.X)) {
+        $cameraPreview.SetFocus()
+        Start-Sleep -Milliseconds 500
+        $cameraPreview = Find-DescendantByAutomationId -Root $app -AutomationId "CameraPreviewBubble"
+    }
+    $cameraBounds = $cameraPreview.Current.BoundingRectangle
+    $cameraBoundsValid =
+        -not [double]::IsNaN($cameraBounds.X) -and
+        -not [double]::IsNaN($cameraBounds.Y) -and
+        -not [double]::IsNaN($cameraBounds.Width) -and
+        -not [double]::IsNaN($cameraBounds.Height) -and
+        $cameraBounds.Width -gt 0 -and
+        $cameraBounds.Height -gt 0
+    if ($cameraBoundsValid) {
+        Drag-Element -Element $cameraPreview -DeltaX -60 -DeltaY -40
+        $cameraPlacementInput = "pointer"
+    } else {
+        $cameraPreview.SetFocus()
+        [System.Windows.Forms.SendKeys]::SendWait("{LEFT 6}{UP 4}")
+        $cameraPlacementInput = "keyboard"
+    }
+    Start-Sleep -Milliseconds 500
 
     $captureStartedAt = Get-Date
     $cpuStart = Get-CpuSnapshot
@@ -408,6 +506,15 @@ try {
     if (-not $project) {
         throw "No benchmark project was created."
     }
+    $presenterLayoutPath = Join-Path $project.FullName "presenter-layout.json"
+    if (-not (Test-Path $presenterLayoutPath)) {
+        throw "Presenter layout metadata was not published."
+    }
+    $presenterLayout = Get-Content $presenterLayoutPath -Raw | ConvertFrom-Json
+    if ([Math]::Abs([double]$presenterLayout.x - 0.72) -lt 0.005 -and
+        [Math]::Abs([double]$presenterLayout.y - 0.68) -lt 0.005) {
+        throw "Live camera overlay drag was not persisted."
+    }
 
     $segment = Get-ChildItem (Join-Path $project.FullName "segments\screen") -Recurse -File |
         Where-Object Extension -in @(".mkv", ".mp4") |
@@ -441,6 +548,13 @@ try {
         segmentBytes = [long]$probe.format.size
         projectPath = $project.FullName
         status = $statusAfterStop
+        liveScreenPreview = $true
+        liveCameraPreview = $true
+        cameraOverlayPlacement = $true
+        cameraOverlayDrag = $cameraPlacementInput -eq "pointer"
+        cameraPlacementInput = $cameraPlacementInput
+        cameraOverlayX = [Math]::Round([double]$presenterLayout.x, 4)
+        cameraOverlayY = [Math]::Round([double]$presenterLayout.y, 4)
     }
     $json = $result | ConvertTo-Json -Depth 4
     if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using SevenRecord.Domain.Captions;
 using SevenRecord.Domain.Timeline;
+using SevenRecord.Domain.Video;
 using SevenRecord.Media;
 using SevenRecord.Transcription;
 
@@ -126,11 +127,68 @@ public static class FfmpegRenderPlanExporter
             screenLabel = "zoomed";
         }
 
-        if (cameraIndex >= 0)
+        TimelineAutomationEvent? presenterLayout = plan.Automation
+            .FirstOrDefault(item => item.Kind == "PresenterLayout");
+        PresenterLayoutMode presenterMode = (PresenterLayoutMode)(int)
+            AutomationValue(
+                presenterLayout,
+                "mode",
+                (double)PresenterLayoutMode.RoundedOverlay);
+        if (cameraIndex >= 0 &&
+            presenterMode is not PresenterLayoutMode.ScreenOnly)
         {
-            int cameraWidth = Math.Max(240, plan.Canvas.Width / 4);
-            filters.Add($"[{cameraIndex}:v]scale={cameraWidth}:-2[camera]");
-            filters.Add($"[{screenLabel}][camera]overlay=W-w-48:H-h-48[composite]");
+            double widthRatio = AutomationValue(
+                presenterLayout,
+                "width",
+                PresenterLayoutSettings.DefaultOverlay.Width);
+            double heightRatio = AutomationValue(
+                presenterLayout,
+                "height",
+                PresenterLayoutSettings.DefaultOverlay.Height);
+            int cameraWidth = EvenDimension(
+                plan.Canvas.Width * Math.Clamp(widthRatio, 0.1, 1));
+            int cameraHeight = EvenDimension(
+                plan.Canvas.Height * Math.Clamp(heightRatio, 0.1, 1));
+            int cameraX = (int)Math.Round(
+                plan.Canvas.Width *
+                Math.Clamp(
+                    AutomationValue(
+                        presenterLayout,
+                        "x",
+                        PresenterLayoutSettings.DefaultOverlay.X),
+                    0,
+                    1 - (double)cameraWidth / plan.Canvas.Width));
+            int cameraY = (int)Math.Round(
+                plan.Canvas.Height *
+                Math.Clamp(
+                    AutomationValue(
+                        presenterLayout,
+                        "y",
+                        PresenterLayoutSettings.DefaultOverlay.Y),
+                    0,
+                    1 - (double)cameraHeight / plan.Canvas.Height));
+            double cornerRadius = Math.Clamp(
+                AutomationValue(
+                    presenterLayout,
+                    "cornerRadius",
+                    PresenterLayoutSettings.DefaultOverlay.CornerRadius),
+                0,
+                0.5);
+            string cameraFilter =
+                $"[{cameraIndex}:v]scale={cameraWidth}:{cameraHeight}:" +
+                "force_original_aspect_ratio=increase," +
+                $"crop={cameraWidth}:{cameraHeight},format=rgba";
+            if (cornerRadius >= 0.49)
+            {
+                cameraFilter +=
+                    ",geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':" +
+                    "a='if(lte(pow((X-W/2)/(W/2),2)+" +
+                    "pow((Y-H/2)/(H/2),2),1),255,0)'";
+            }
+            filters.Add(cameraFilter + "[camera]");
+            filters.Add(
+                $"[{screenLabel}][camera]overlay={cameraX}:{cameraY}:" +
+                "format=auto[composite]");
         }
         else
         {
@@ -430,6 +488,22 @@ public static class FfmpegRenderPlanExporter
 
     private static string Seconds(double value) =>
         value.ToString("F6", CultureInfo.InvariantCulture);
+
+    private static int EvenDimension(double value)
+    {
+        int rounded = Math.Max(2, (int)Math.Round(value));
+        return rounded % 2 == 0 ? rounded : rounded - 1;
+    }
+
+    private static double AutomationValue(
+        TimelineAutomationEvent? automation,
+        string key,
+        double fallback) =>
+        automation is not null &&
+        automation.NumericData.TryGetValue(key, out double value) &&
+        double.IsFinite(value)
+            ? value
+            : fallback;
 
     private static double ZoomValue(
         TimelineAutomationEvent zoom,
