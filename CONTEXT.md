@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-21 13:45 IST
+Last updated: 2026-07-26 12:18 IST
 
 ## Resume Here (deadline checkpoint)
 
@@ -121,6 +121,8 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Recording now renders a throttled live screen preview plus a full-stream camera bubble using reusable GPU targets and disposable `SoftwareBitmap` frames; static windows continue previewing from the held-frame pacer.
 - The live camera bubble supports pointer/keyboard placement, persists normalized coordinates into `presenter-layout.json`, and the FFmpeg exporter consumes those coordinates and dimensions.
 - Camera copying uses each frame's actual Direct3D surface bounds, avoiding redirected-camera corner crops.
+- Full release QA is logged in `docs/qa/full-functional-qa-2026-07-26.md`: 62 cases, 40 pass, 9 fail, 9 blocked, 3 not implemented, 1 not run; verdict **NOT RELEASE READY**.
+- Highest-priority defects are missing production segment rollover (P0), severe Remote Audio microphone loss, multi-segment downstream omissions, editor recovery validation gaps, destructive export failure behavior, release/MSIX `NETSDK1150`, and missing unpackaged media-worker resolution.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

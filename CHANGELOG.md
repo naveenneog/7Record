@@ -2,6 +2,16 @@
 
 All notable work, attempted approaches, failures, and decisions are recorded here so the project can resume without repeating failed paths.
 
+## 2026-07-26
+
+### QA
+
+- Executed a 62-case full functional QA pass covering build/tests, native UI, accessibility, camera, audio, cursor metadata, post-processing, recovery, playback, real FFmpeg exports, captions, packaging, and distribution.
+- Logged the complete matrix and 17 prioritized findings in `docs/qa/full-functional-qa-2026-07-26.md`.
+- Verified 40 passes, 9 failures, 9 environment-blocked cases, 3 unimplemented features, and 1 project caption case not run.
+- Confirmed real landscape, portrait, and square exports with H.264 video, AAC audio, rounded camera overlay, and visible caption burn-in.
+- Set release verdict to **NOT RELEASE READY** because crash-safe segment rollover is not wired, microphone capture loses seconds, packaging fails, and multiple recovery/export integrity defects remain.
+
 ## 2026-07-21
 
 ### Added
