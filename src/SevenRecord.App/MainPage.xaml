@@ -696,6 +696,7 @@
 
                                 <TextBlock
                                     x:Name="ProjectPreviewStatusText"
+                                    AutomationProperties.LiveSetting="Polite"
                                     Style="{StaticResource MetaTextStyle}"
                                     Text="Select a recording to load its preview."
                                     TextWrapping="Wrap" />
@@ -796,6 +797,7 @@
 
                                 <TextBlock
                                     x:Name="RenderPlanSummaryText"
+                                    AutomationProperties.LiveSetting="Polite"
                                     Style="{StaticResource BodyTextStyle}"
                                     TextWrapping="Wrap" />
                                 <ListView

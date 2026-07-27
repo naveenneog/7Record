@@ -10,9 +10,12 @@ public static class CaptionFormatter
     {
         ArgumentNullException.ThrowIfNull(document);
         StringBuilder builder = new();
-        for (int index = 0; index < document.Segments.Count; index++)
+        CaptionSegment[] segments = document.Segments
+            .OrderBy(segment => segment.Start)
+            .ToArray();
+        for (int index = 0; index < segments.Length; index++)
         {
-            CaptionSegment segment = document.Segments[index];
+            CaptionSegment segment = segments[index];
             builder.AppendLine((index + 1).ToString(CultureInfo.InvariantCulture));
             builder.Append(FormatTimestamp(segment.Start, ','));
             builder.Append(" --> ");
@@ -30,7 +33,8 @@ public static class CaptionFormatter
         StringBuilder builder = new("WEBVTT");
         builder.AppendLine();
         builder.AppendLine();
-        foreach (CaptionSegment segment in document.Segments)
+        foreach (CaptionSegment segment in document.Segments.OrderBy(
+                     segment => segment.Start))
         {
             builder.Append(FormatTimestamp(segment.Start, '.'));
             builder.Append(" --> ");

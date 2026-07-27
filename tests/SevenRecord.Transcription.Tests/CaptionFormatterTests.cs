@@ -34,4 +34,27 @@ public sealed class CaptionFormatterTests
         StringAssert.StartsWith(vtt, "WEBVTT");
         StringAssert.Contains(vtt, "00:00:01.250 --> 00:00:03.500");
     }
+
+    [TestMethod]
+    public void OutputIsSortedByCaptionStart()
+    {
+        CaptionDocument unsorted = Document with
+        {
+            Segments =
+            [
+                new CaptionSegment(
+                    "later",
+                    TimeSpan.FromSeconds(4),
+                    TimeSpan.FromSeconds(5),
+                    "Later"),
+                Document.Segments.Single(),
+            ],
+        };
+
+        string srt = CaptionFormatter.ToSrt(unsorted);
+
+        Assert.IsTrue(
+            srt.IndexOf("Hello 7Record", StringComparison.Ordinal) <
+            srt.IndexOf("Later", StringComparison.Ordinal));
+    }
 }

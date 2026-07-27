@@ -124,6 +124,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Full release QA is logged in `docs/qa/full-functional-qa-2026-07-26.md`: 62 cases, 40 pass, 9 fail, 9 blocked, 3 not implemented, 1 not run; verdict **NOT RELEASE READY**.
 - Highest-priority defects are missing production segment rollover (P0), severe Remote Audio microphone loss, multi-segment downstream omissions, editor recovery validation gaps, destructive export failure behavior, release/MSIX `NETSDK1150`, and missing unpackaged media-worker resolution.
 - Release/runtime delivery is repaired: self-contained publish and unsigned x64 MSIX now succeed with the media worker included; direct builds resolve the same worker, and failed FFmpeg exports preserve the prior valid file.
+- Project opening is integrity-gated and transactional, editor choices persist across reopen, captions reject overlap/out-of-range edits, and successful Stop opens the completed recording directly in Projects.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

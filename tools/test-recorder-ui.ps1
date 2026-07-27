@@ -140,6 +140,17 @@ try {
     $cameraToggle = Find-ById -Root $app -AutomationId "CameraOverlayToggle"
     $recorderNav = Find-ById -Root $app -AutomationId "RecorderNavigationItem"
     $projectsNav = Find-ById -Root $app -AutomationId "ProjectsNavigationItem"
+    if (-not $recorderNav -or -not $projectsNav) {
+        $togglePane = Find-ById -Root $app -AutomationId "TogglePaneButton"
+        if ($togglePane) {
+            $invoke = [System.Windows.Automation.InvokePattern]$togglePane.GetCurrentPattern(
+                [System.Windows.Automation.InvokePattern]::Pattern)
+            $invoke.Invoke()
+            Start-Sleep -Milliseconds 500
+            $recorderNav = Find-ById -Root $app -AutomationId "RecorderNavigationItem"
+            $projectsNav = Find-ById -Root $app -AutomationId "ProjectsNavigationItem"
+        }
+    }
 
     Assert-True ($record.Current.Name -eq "Start recording") `
         "Record has the wrong automation name: '$($record.Current.Name)'."

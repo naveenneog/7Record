@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Security.Cryptography;
 using SevenRecord.Domain.Audio;
 using SevenRecord.Domain.Captions;
 using SevenRecord.Domain.Input;
@@ -19,8 +20,10 @@ public sealed class ProjectTimelineLoaderTests
         {
             using (RecordingJournal journal = new(Path.Combine(project, "recording.journal")))
             {
-                await journal.AppendAsync(Entry(1, "screen", "screen.mp4"));
-                await journal.AppendAsync(Entry(2, "microphone", "microphone.wav"));
+                await journal.AppendAsync(
+                    await EntryAsync(project, 1, "screen", "screen.mp4"));
+                await journal.AppendAsync(
+                    await EntryAsync(project, 2, "microphone", "microphone.wav"));
             }
 
             await File.WriteAllTextAsync(
@@ -84,6 +87,8 @@ public sealed class ProjectTimelineLoaderTests
             Assert.IsTrue(timeline.Clips.Any(clip => clip.Track is TimelineTrackKind.Screen));
             Assert.IsTrue(timeline.Clips.Any(clip => clip.Track is TimelineTrackKind.Microphone));
             Assert.HasCount(4, timeline.Automation);
+            Assert.IsTrue(
+                timeline.Automation.Any(item => item.Id == "presenter-layout"));
             Assert.HasCount(1, timeline.Captions);
             Assert.IsTrue(timeline.Automation.All(item => item.IsEnabled));
             Assert.AreEqual(TimeSpan.FromSeconds(5), timeline.Duration);
@@ -94,19 +99,53 @@ public sealed class ProjectTimelineLoaderTests
         }
     }
 
-    private static RecordingSegmentEntry Entry(
+    [TestMethod]
+    public async Task RejectsMissingJournaledMedia()
+    {
+        string project = CreateTemporaryProject();
+        try
+        {
+            using RecordingJournal journal = new(
+                Path.Combine(project, "recording.journal"));
+            await journal.AppendAsync(
+                new RecordingSegmentEntry(
+                    1,
+                    "missing",
+                    "screen",
+                    "missing.mp4",
+                    0,
+                    TimeSpan.FromSeconds(5).Ticks,
+                    100,
+                    new string('A', 64)));
+
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(
+                () => ProjectTimelineLoader.LoadAsync(project));
+        }
+        finally
+        {
+            Directory.Delete(project, recursive: true);
+        }
+    }
+
+    private static async Task<RecordingSegmentEntry> EntryAsync(
+        string project,
         int sequence,
         string source,
-        string path) =>
-        new(
+        string path)
+    {
+        string fullPath = Path.Combine(project, path);
+        byte[] content = [(byte)sequence];
+        await File.WriteAllBytesAsync(fullPath, content);
+        return new RecordingSegmentEntry(
             sequence,
             Guid.NewGuid().ToString("N"),
             source,
             path,
             0,
             TimeSpan.FromSeconds(5).Ticks,
-            1,
-            new string('A', 64));
+            content.Length,
+            Convert.ToHexString(SHA256.HashData(content)));
+    }
 
     private static string CreateTemporaryProject()
     {

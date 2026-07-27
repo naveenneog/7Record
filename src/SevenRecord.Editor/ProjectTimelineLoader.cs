@@ -21,7 +21,18 @@ public static class ProjectTimelineLoader
         string fullProjectPath = Path.GetFullPath(projectPath);
         using RecordingJournal journal = new(
             Path.Combine(fullProjectPath, "recording.journal"));
-        RecordingJournalReplay replay = await journal.ReplayAsync(cancellationToken);
+        RecordingRecoveryReport recovery =
+            await new RecordingRecoveryService(fullProjectPath, journal)
+                .InspectAsync(cancellationToken);
+        if (recovery.MissingSegments.Count > 0 ||
+            recovery.CorruptSegments.Count > 0)
+        {
+            throw new InvalidDataException(
+                "The project cannot be opened because " +
+                $"{recovery.MissingSegments.Count} source file(s) are missing and " +
+                $"{recovery.CorruptSegments.Count} are damaged.");
+        }
+        RecordingJournalReplay replay = recovery.Journal;
 
         TimelineClip[] clips = replay.Entries
             .Select(entry => new TimelineClip(
@@ -68,7 +79,7 @@ public static class ProjectTimelineLoader
                 JsonSerializer.Deserialize<AudioRepairEvent[]>(json, SerializerOptions) ?? [];
             automation.AddRange(
                 repairs.Select(repair => new TimelineAutomationEvent(
-                    Guid.NewGuid().ToString("N"),
+                    AudioRepairId(repair),
                     repair.Kind.ToString(),
                     TrackForAudio(repair.Track),
                     TimelineRange.FromStartAndDuration(
@@ -90,7 +101,7 @@ public static class ProjectTimelineLoader
             {
                 automation.Add(
                     new TimelineAutomationEvent(
-                        Guid.NewGuid().ToString("N"),
+                        "presenter-layout",
                         "PresenterLayout",
                         TimelineTrackKind.Camera,
                         TimelineRange.FromStartAndDuration(TimeSpan.Zero, duration),
@@ -200,4 +211,8 @@ public static class ProjectTimelineLoader
         track is AudioTrackKind.Microphone
             ? TimelineTrackKind.Microphone
             : TimelineTrackKind.SystemAudio;
+
+    private static string AudioRepairId(AudioRepairEvent repair) =>
+        $"audio-{repair.Track}-{repair.Kind}-" +
+        $"{repair.Start.Ticks:x16}-{repair.Duration.Ticks:x16}";
 }

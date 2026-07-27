@@ -6,11 +6,17 @@ public sealed class CaptionEditSession
 {
     private readonly Stack<CaptionDocument> _redo = new();
     private readonly Stack<CaptionDocument> _undo = new();
+    private readonly TimeSpan? _maximumDuration;
 
-    public CaptionEditSession(CaptionDocument document)
+    public CaptionEditSession(
+        CaptionDocument document,
+        TimeSpan? maximumDuration = null)
     {
         ArgumentNullException.ThrowIfNull(document);
-        Current = document;
+        _maximumDuration = maximumDuration;
+        Current = CaptionDocumentValidator.ValidateAndNormalize(
+            document,
+            maximumDuration);
     }
 
     public CaptionDocument Current { get; private set; }
@@ -49,9 +55,12 @@ public sealed class CaptionEditSession
         CaptionSegment[] segments = Current.Segments.ToArray();
         segments[index] = updated;
 
+        CaptionDocument next = CaptionDocumentValidator.ValidateAndNormalize(
+            Current with { Segments = segments },
+            _maximumDuration);
         _undo.Push(Current);
         _redo.Clear();
-        Current = Current with { Segments = segments };
+        Current = next;
     }
 
     public bool Undo()

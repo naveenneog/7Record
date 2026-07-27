@@ -64,6 +64,7 @@ public sealed partial class MainPage : Page, IDisposable
     private bool _cameraOverlayDragging;
     private bool _cameraEnabled = true;
     private bool _disposed;
+    private bool _loadingProject;
     private bool _updatingCameraToggle;
     private GlobalHotKeyService? _globalHotKeys;
     private WindowsRecordingSession? _recordingSession;
@@ -131,6 +132,7 @@ public sealed partial class MainPage : Page, IDisposable
             OnRecorderStatusPropertyChanged);
         UpdateRecorderStatusAccessibility();
         ApplyRecorderVisualState(_recorderState.Snapshot);
+        SetProjectActionsEnabled(false);
     }
 
     private void OnRecorderStatusPropertyChanged(
@@ -581,12 +583,33 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async Task OpenProjectAsync(string projectPath)
     {
+        ClearProjectEditorState();
+        _loadingProject = true;
+        TimelineProjectTitle.Text = "Opening recording...";
+        ProjectDetailEmptyState.Visibility = Visibility.Collapsed;
+        TimelineSection.Visibility = Visibility.Visible;
         try
         {
             TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(projectPath);
+            CaptionEditSession? captionSession =
+                await LoadCaptionEditSessionAsync(projectPath, timeline.Duration);
+            EditorProjectStateLoadResult editorState =
+                await EditorProjectStateStore.LoadAsync(projectPath);
+
             _currentTimeline = timeline;
-            _disabledAutomation.Clear();
-            await LoadCaptionEditorAsync(projectPath);
+            _captionEditSession = captionSession;
+            HashSet<string> validAutomationIds = timeline.Automation
+                .Select(item => item.Id)
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (string automationId in editorState.State.DisabledAutomationIds)
+            {
+                if (validAutomationIds.Contains(automationId))
+                {
+                    _disabledAutomation.Add(automationId);
+                }
+            }
+            RenderPresetComboBox.SelectedIndex =
+                editorState.State.RenderPresetIndex;
             LoadProjectPreview(timeline);
             TimelineProjectTitle.Text =
                 $"{FormatProjectDisplayName(Path.GetFileName(projectPath))}  ·  " +
@@ -606,7 +629,7 @@ public sealed partial class MainPage : Page, IDisposable
                     Content =
                         $"Automation -> {automation.TargetTrack}  |  {automation.Kind}  |  " +
                         automation.Description,
-                    IsChecked = true,
+                    IsChecked = !_disabledAutomation.Contains(automation.Id),
                     Tag = automation.Id,
                 };
                 toggle.Checked += OnAutomationToggled;
@@ -620,20 +643,88 @@ public sealed partial class MainPage : Page, IDisposable
                     $"{caption.Range.End:hh\\:mm\\:ss\\.fff}  |  {caption.Text}");
             }
 
+            PopulateCaptionEditor();
             UpdateRenderPlanSummary();
+            if (!string.IsNullOrWhiteSpace(editorState.Warning))
+            {
+                RenderPlanSummaryText.Text += $" {editorState.Warning}";
+            }
             ProjectDetailEmptyState.Visibility = Visibility.Collapsed;
             TimelineSection.Visibility = Visibility.Visible;
             TimelineSection.StartBringIntoView();
+            ProjectPreviewPlayer.Focus(FocusState.Programmatic);
         }
         catch (Exception exception)
         {
+            ClearProjectEditorState();
             TimelineProjectTitle.Text = $"Timeline could not be loaded: {exception.Message}";
             ProjectDetailEmptyState.Visibility = Visibility.Collapsed;
             TimelineSection.Visibility = Visibility.Visible;
+            ProjectPreviewStatusText.Text =
+                "This recording was not opened. Review its recovery status and try again.";
+        }
+        finally
+        {
+            _loadingProject = false;
+            SetProjectActionsEnabled(_currentTimeline is not null);
         }
     }
 
-    private void OnAutomationToggled(object sender, RoutedEventArgs e)
+    private void ClearProjectEditorState()
+    {
+        _currentTimeline = null;
+        _captionEditSession = null;
+        _disabledAutomation.Clear();
+        _currentPreviewPath = null;
+        ProjectPreviewPlayer.Source = null;
+        ProjectPreviewStatusText.Text = "No recording is loaded.";
+        TimelineItemsList.Items.Clear();
+        CaptionSelectorComboBox.Items.Clear();
+        CaptionEditorPanel.Visibility = Visibility.Collapsed;
+        OpenRecordingExternallyButton.IsEnabled = false;
+        OpenProjectFolderButton.IsEnabled = false;
+        SetProjectActionsEnabled(false);
+    }
+
+    private void SetProjectActionsEnabled(bool enabled)
+    {
+        RenderPresetComboBox.IsEnabled = enabled;
+        SaveRenderPlanButton.IsEnabled = enabled;
+        ExportMp4Button.IsEnabled = enabled;
+        GenerateCaptionsButton.IsEnabled = enabled;
+    }
+
+    private async Task PersistEditorStateAsync()
+    {
+        if (_loadingProject || _currentTimeline is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await EditorProjectStateStore.SaveAsync(
+                _currentTimeline.ProjectPath,
+                new EditorProjectState(
+                    1,
+                    Math.Clamp(RenderPresetComboBox.SelectedIndex, 0, 2),
+                    _disabledAutomation
+                        .Order(StringComparer.Ordinal)
+                        .ToArray()));
+        }
+        catch (IOException exception)
+        {
+            RenderPlanSummaryText.Text =
+                $"Editor choices could not be saved: {exception.Message}";
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            RenderPlanSummaryText.Text =
+                $"Editor choices could not be saved: {exception.Message}";
+        }
+    }
+
+    private async void OnAutomationToggled(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox { Tag: string automationId } toggle)
         {
@@ -650,6 +741,7 @@ public sealed partial class MainPage : Page, IDisposable
         }
 
         UpdateRenderPlanSummary();
+        await PersistEditorStateAsync();
     }
 
     private void LoadProjectPreview(TimelineDocument timeline)
@@ -760,8 +852,13 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private void OnRenderPresetChanged(object sender, SelectionChangedEventArgs e) =>
+    private async void OnRenderPresetChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
         UpdateRenderPlanSummary();
+        await PersistEditorStateAsync();
+    }
 
     private async void OnSaveRenderPlanClicked(object sender, RoutedEventArgs e)
     {
@@ -998,22 +1095,23 @@ public sealed partial class MainPage : Page, IDisposable
             $"{_currentTimeline.Captions.Count} captions.";
     }
 
-    private async Task LoadCaptionEditorAsync(string projectPath)
+    private static async Task<CaptionEditSession?> LoadCaptionEditSessionAsync(
+        string projectPath,
+        TimeSpan timelineDuration)
     {
         string path = Path.Combine(projectPath, "captions.json");
         if (!File.Exists(path))
         {
-            _captionEditSession = null;
-            CaptionEditorPanel.Visibility = Visibility.Collapsed;
-            return;
+            return null;
         }
 
         string json = await File.ReadAllTextAsync(path);
         CaptionDocument? document = JsonSerializer.Deserialize<CaptionDocument>(
             json,
             RenderPlanSerializerOptions);
-        _captionEditSession = document is null ? null : new CaptionEditSession(document);
-        PopulateCaptionEditor();
+        return document is null
+            ? null
+            : new CaptionEditSession(document, timelineDuration);
     }
 
     private void PopulateCaptionEditor(string? selectedId = null)
@@ -1116,6 +1214,7 @@ public sealed partial class MainPage : Page, IDisposable
         string json = JsonSerializer.Serialize(plan, RenderPlanSerializerOptions);
         await File.WriteAllTextAsync(temporaryPath, json);
         File.Move(temporaryPath, path, overwrite: true);
+        await PersistEditorStateAsync();
         return path;
     }
 
@@ -1687,6 +1786,7 @@ public sealed partial class MainPage : Page, IDisposable
         _systemAudioHealth = null;
 
         bool finalizationFailed = false;
+        string? completedProjectRoot = null;
         try
         {
             WindowsRecordingFinalizationResult result =
@@ -1748,6 +1848,7 @@ public sealed partial class MainPage : Page, IDisposable
 
             if (!finalizationFailed)
             {
+                completedProjectRoot = result.ProjectRoot;
                 StartProjectPostProcessing(result.ProjectRoot);
             }
         }
@@ -1783,6 +1884,15 @@ public sealed partial class MainPage : Page, IDisposable
             await RefreshReadinessAsync();
         }
         await RefreshProjectsAsync();
+        if (completedProjectRoot is not null &&
+            reason is not RecordingStopReason.ApplicationExit)
+        {
+            WorkspaceNavigation.SelectedItem = ProjectsNavigationItem;
+            ProjectsNavigationItem.IsSelected = true;
+            RecorderView.Visibility = Visibility.Collapsed;
+            ProjectsView.Visibility = Visibility.Visible;
+            await OpenProjectAsync(completedProjectRoot);
+        }
     }
 
     private static string CreateProjectRoot()
@@ -2423,6 +2533,9 @@ public sealed partial class MainPage : Page, IDisposable
                     Content = CreateProjectListContent(
                         project,
                         displayName),
+                    IsEnabled = project.RecoveryState is
+                        not ProjectRecoveryState.NeedsAttention and
+                        not ProjectRecoveryState.Corrupt,
                     Tag = project.Path,
                 };
                 AutomationProperties.SetName(
@@ -2476,6 +2589,7 @@ public sealed partial class MainPage : Page, IDisposable
                 Text =
                     $"{project.RecoveryState} · {project.Duration:hh\\:mm\\:ss} · " +
                     $"{project.MediaSegments} source(s)",
+                TextWrapping = TextWrapping.Wrap,
             });
         content.Children.Add(
             new TextBlock
@@ -2487,10 +2601,14 @@ public sealed partial class MainPage : Page, IDisposable
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 TextWrapping = TextWrapping.Wrap,
             });
+        bool canOpen = project.RecoveryState is
+            not ProjectRecoveryState.NeedsAttention and
+            not ProjectRecoveryState.Corrupt;
         Button openButton = new()
         {
-            Content = "Open recording",
+            Content = canOpen ? "Open recording" : "Recovery required",
             HorizontalAlignment = HorizontalAlignment.Left,
+            IsEnabled = canOpen,
             Margin = new Thickness(0, 4, 0, 0),
             Tag = project.Path,
         };

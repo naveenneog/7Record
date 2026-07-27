@@ -14,6 +14,13 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Made FFmpeg export atomic: failed renders leave the prior valid MP4 untouched and clean up partial files.
 - Added explicit feedback when Windows returns no capture source instead of silently returning to Ready.
 - Restored unpackaged loading analysis by resolving the worker from the actual runtime output.
+- Gated timeline loading on journaled media integrity so missing or tampered sources cannot enter playback/export.
+- Made project opening transactional: stale preview, caption, timeline, and export state is cleared before load and committed only after all project data succeeds.
+- Added deterministic audio-repair and presenter-layout automation identifiers.
+- Persisted render preset and disabled automation choices in atomic `editor-state.json`.
+- Validated complete caption documents for ordering, overlap, and recording bounds before accepting edits.
+- Sorted SRT/VTT output by caption start time.
+- Disabled project opening for Needs Attention and Corrupt library states.
 
 ### Validation
 
@@ -21,6 +28,12 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Export tests: 8 passed, including failed-export preservation.
 - Self-contained x64 publish contains `MediaWorker\SevenRecord.Media.Worker.exe`.
 - Unsigned x64 MSIX generated successfully and contains 472 media-worker payload entries.
+- Editor tests: 7 passed; transcription tests: 3 passed.
+- UIA playback/navigation/adaptive gate passed at the active 150% DPI scale.
+
+### Added
+
+- Successful recording finalization now navigates directly to Projects and opens the completed recording for review.
 
 ## 2026-07-26
 
