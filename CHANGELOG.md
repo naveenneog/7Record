@@ -52,6 +52,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Full build completed with zero warnings/errors; automated and UIA suites passed.
 - Camera studio release suite: 102 tests passed, zero warnings/errors, UIA passed.
 - Loading confidence release suite: 100 tests passed, zero warnings/errors; synthetic silent audio produced one silence interval while audible audio produced none.
+- npm installer tests: 5 passed; package dry-run contains only the CLI, installer, README, and manifest.
+- The npm installer intentionally fails closed until the production signing certificate thumbprint is provisioned and pinned.
 - Redirected camera sources were enumerated but delivered no frames during final camera-studio hardware validation; device acceptance must be rerun outside the current Remote Desktop state.
 
 ### Added
@@ -61,6 +63,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added a reusable camera crop geometry model and effects-ready presenter metadata that remains reversible.
 - Applied the same camera framing and exposure controls to live recording preview and final FFmpeg export.
 - Added accessible camera-position/framing status and native slider controls.
+- Added a zero-dependency `npx 7record` Windows installer package with architecture selection, GitHub release resolution, SHA-256 verification, pinned publisher verification, package-identity validation, MSIX installation, and launch.
+- Added a signed multi-architecture release packaging script that emits release assets and checksum files.
 
 ## 2026-07-26
 
