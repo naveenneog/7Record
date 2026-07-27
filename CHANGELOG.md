@@ -2,6 +2,26 @@
 
 All notable work, attempted approaches, failures, and decisions are recorded here so the project can resume without repeating failed paths.
 
+## 2026-07-27
+
+### Fixed
+
+- Made `SevenRecord.Media.Worker` a self-contained runtime payload rather than an incompatible executable project dependency.
+- Added one `MediaWorkerLocator` for direct and packaged runtime layouts.
+- Included the complete worker in Debug output, self-contained x64 publish output, and the generated x64 MSIX.
+- Corrected the MSIX programmatic graphics-capture capability namespace.
+- Disabled release trimming until source-generated JSON metadata is available, avoiding trim-unsafe editor/runtime serialization.
+- Made FFmpeg export atomic: failed renders leave the prior valid MP4 untouched and clean up partial files.
+- Added explicit feedback when Windows returns no capture source instead of silently returning to Ready.
+- Restored unpackaged loading analysis by resolving the worker from the actual runtime output.
+
+### Validation
+
+- Media tests: 14 passed.
+- Export tests: 8 passed, including failed-export preservation.
+- Self-contained x64 publish contains `MediaWorker\SevenRecord.Media.Worker.exe`.
+- Unsigned x64 MSIX generated successfully and contains 472 media-worker payload entries.
+
 ## 2026-07-26
 
 ### QA

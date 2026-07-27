@@ -293,6 +293,11 @@ public static class FfmpegRenderPlanExporter
                 "FFmpeg is not installed or is not available on PATH.");
         }
 
+        string fullOutputPath = Path.GetFullPath(outputPath);
+        string outputDirectory = Path.GetDirectoryName(fullOutputPath)!;
+        string temporaryOutputPath = Path.Combine(
+            outputDirectory,
+            $".{Path.GetFileNameWithoutExtension(fullOutputPath)}-{Guid.NewGuid():N}.partial.mp4");
         string? subtitlePath = null;
         try
         {
@@ -322,7 +327,7 @@ public static class FfmpegRenderPlanExporter
             FfmpegExportCommand command;
             try
             {
-                command = CreateCommand(plan, outputPath, subtitlePath);
+                command = CreateCommand(plan, temporaryOutputPath, subtitlePath);
             }
             catch (InvalidOperationException exception)
             {
@@ -333,7 +338,7 @@ public static class FfmpegRenderPlanExporter
                 return new RenderPlanExportResult(false, outputPath, exception.Message);
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+            Directory.CreateDirectory(outputDirectory);
             ProcessStartInfo startInfo = new()
             {
                 FileName = ffmpegPath,
@@ -363,14 +368,26 @@ public static class FfmpegRenderPlanExporter
                 await process.WaitForExitAsync(cancellationToken);
                 _ = await output;
                 string standardError = await error;
-                return process.ExitCode == 0
-                    ? new RenderPlanExportResult(true, Path.GetFullPath(outputPath), null)
-                    : new RenderPlanExportResult(
+                if (process.ExitCode != 0)
+                {
+                    return new RenderPlanExportResult(
                         false,
                         outputPath,
                         string.IsNullOrWhiteSpace(standardError)
                             ? $"FFmpeg exited with code {process.ExitCode}."
                             : standardError.Trim());
+                }
+                if (!File.Exists(temporaryOutputPath) ||
+                    new FileInfo(temporaryOutputPath).Length == 0)
+                {
+                    return new RenderPlanExportResult(
+                        false,
+                        outputPath,
+                        "FFmpeg completed without producing a valid export.");
+                }
+
+                File.Move(temporaryOutputPath, fullOutputPath, overwrite: true);
+                return new RenderPlanExportResult(true, fullOutputPath, null);
             }
             catch (Win32Exception)
             {
@@ -382,6 +399,10 @@ public static class FfmpegRenderPlanExporter
         }
         finally
         {
+            if (File.Exists(temporaryOutputPath))
+            {
+                File.Delete(temporaryOutputPath);
+            }
             if (subtitlePath is not null && File.Exists(subtitlePath))
             {
                 File.Delete(subtitlePath);

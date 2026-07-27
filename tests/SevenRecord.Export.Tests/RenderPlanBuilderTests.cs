@@ -265,6 +265,46 @@ public sealed class RenderPlanBuilderTests
         StringAssert.Contains(command, "concat=n=3:v=0:a=1");
     }
 
+    [TestMethod]
+    public async Task FailedExportPreservesExistingOutput()
+    {
+        if (SevenRecord.Media.FfmpegLocator.FindExecutable() is null)
+        {
+            Assert.Inconclusive("FFmpeg is unavailable.");
+        }
+
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "SevenRecord.Export.Tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "existing.mp4");
+        byte[] original = [1, 2, 3, 4];
+        await File.WriteAllBytesAsync(output, original);
+        TimelineDocument timeline = new(
+            root,
+            TimeSpan.FromSeconds(1),
+            [Clip("screen", TimelineTrackKind.Screen, "missing-screen.mp4")],
+            []);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p);
+        try
+        {
+            RenderPlanExportResult result =
+                await FfmpegRenderPlanExporter.ExportAsync(plan, output);
+
+            Assert.IsFalse(result.Succeeded);
+            CollectionAssert.AreEqual(original, await File.ReadAllBytesAsync(output));
+            Assert.IsEmpty(
+                Directory.GetFiles(root, "*.partial.mp4", SearchOption.TopDirectoryOnly));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static TimelineAutomationEvent Automation(string id) =>
         new(
             id,

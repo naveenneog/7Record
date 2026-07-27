@@ -805,10 +805,9 @@ public sealed partial class MainPage : Page, IDisposable
             string outputPath = Path.Combine(
                 exportsDirectory,
                 $"7record-{CurrentRenderPlan().Preset.ToString().ToLowerInvariant()}.mp4");
-            string workerPath = Path.Combine(
-                AppContext.BaseDirectory,
-                "MediaWorker",
-                "SevenRecord.Media.Worker.exe");
+            string workerPath = MediaWorkerLocator.FindExecutable() ??
+                throw new InvalidOperationException(
+                    "The 7Record media worker is missing. Repair or reinstall 7Record.");
             RenderPlanSummaryText.Text = "Exporting MP4...";
             RenderPlanExportResult result = await MediaWorkerExportClient.ExportAsync(
                 workerPath,
@@ -1388,6 +1387,10 @@ public sealed partial class MainPage : Page, IDisposable
                 await WindowsCaptureSourcePicker.PickAsync(windowHandle);
             if (target is null)
             {
+                ReadinessInfoBar.Title = "No screen selected";
+                ReadinessInfoBar.Message =
+                    "Windows did not return a capture source. Try again, or use the installed 7Record package for automatic primary-display capture.";
+                ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
                 return false;
             }
 
@@ -2171,13 +2174,11 @@ public sealed partial class MainPage : Page, IDisposable
         CancellationToken cancellationToken = _postProcessingCancellation.Token;
         try
         {
+            string? workerPath = MediaWorkerLocator.FindExecutable();
             ProjectPostProcessingResult result =
                 await _postProcessingPipeline.RunAsync(
                     projectRoot,
-                    Path.Combine(
-                        AppContext.BaseDirectory,
-                        "MediaWorker",
-                        "SevenRecord.Media.Worker.exe"),
+                    workerPath,
                     cancellationToken);
             DispatcherQueue.TryEnqueue(() =>
             {

@@ -12,6 +12,7 @@
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>true</EnableMsixTooling>
+    <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
     <WindowsAppSdkDeploymentManagerInitialize>false</WindowsAppSdkDeploymentManagerInitialize>
     <WindowsAppSdkBootstrapInitialize>true</WindowsAppSdkBootstrapInitialize>
     <WindowsAppSDKBootstrapAutoInitializeOptions_OnNoMatch_ShowUI>true</WindowsAppSDKBootstrapAutoInitializeOptions_OnNoMatch_ShowUI>
@@ -67,7 +68,6 @@
     <ProjectReference Include="..\SevenRecord.Editor\SevenRecord.Editor.csproj" />
     <ProjectReference Include="..\SevenRecord.Export\SevenRecord.Export.csproj" />
     <ProjectReference Include="..\SevenRecord.Infrastructure\SevenRecord.Infrastructure.csproj" />
-    <ProjectReference Include="..\SevenRecord.Media.Worker\SevenRecord.Media.Worker.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\SevenRecord.Media.Windows\SevenRecord.Media.Windows.csproj" />
     <ProjectReference Include="..\SevenRecord.Audio.Windows\SevenRecord.Audio.Windows.csproj" />
     <ProjectReference Include="..\SevenRecord.Camera.Windows\SevenRecord.Camera.Windows.csproj" />
@@ -75,11 +75,20 @@
     <ProjectReference Include="..\SevenRecord.Input.Windows\SevenRecord.Input.Windows.csproj" />
   </ItemGroup>
 
-  <Target Name="CopyMediaWorkerToAppX" AfterTargets="Build">
+  <Target Name="BuildAndIncludeMediaWorker" BeforeTargets="PrepareForBuild">
+    <MSBuild
+      Projects="$(MSBuildProjectDirectory)\..\SevenRecord.Media.Worker\SevenRecord.Media.Worker.csproj"
+      Targets="Build"
+      Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true"
+      BuildInParallel="false" />
     <ItemGroup>
-      <_MediaWorkerFiles Include="$(MSBuildProjectDirectory)\..\SevenRecord.Media.Worker\bin\$(Configuration)\net10.0\**\*" />
+      <_MediaWorkerFiles Include="$(MSBuildProjectDirectory)\..\SevenRecord.Media.Worker\bin\$(Configuration)\net10.0\$(RuntimeIdentifier)\**\*" />
+      <Content Include="@(_MediaWorkerFiles)">
+        <Link>MediaWorker\%(RecursiveDir)%(Filename)%(Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </Content>
     </ItemGroup>
-    <Copy SourceFiles="@(_MediaWorkerFiles)" DestinationFiles="@(_MediaWorkerFiles->'$(OutDir)AppX\MediaWorker\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 
   <!--
@@ -95,7 +104,6 @@
   <PropertyGroup>
     <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
     <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
-    <PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
-    <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
+    <PublishTrimmed>False</PublishTrimmed>
   </PropertyGroup>
 </Project>

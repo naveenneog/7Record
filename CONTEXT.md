@@ -1,6 +1,6 @@
 # 7Record Resume Context
 
-Last updated: 2026-07-26 12:18 IST
+Last updated: 2026-07-27 23:30 IST
 
 ## Resume Here (deadline checkpoint)
 
@@ -123,6 +123,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Camera copying uses each frame's actual Direct3D surface bounds, avoiding redirected-camera corner crops.
 - Full release QA is logged in `docs/qa/full-functional-qa-2026-07-26.md`: 62 cases, 40 pass, 9 fail, 9 blocked, 3 not implemented, 1 not run; verdict **NOT RELEASE READY**.
 - Highest-priority defects are missing production segment rollover (P0), severe Remote Audio microphone loss, multi-segment downstream omissions, editor recovery validation gaps, destructive export failure behavior, release/MSIX `NETSDK1150`, and missing unpackaged media-worker resolution.
+- Release/runtime delivery is repaired: self-contained publish and unsigned x64 MSIX now succeed with the media worker included; direct builds resolve the same worker, and failed FFmpeg exports preserve the prior valid file.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`
