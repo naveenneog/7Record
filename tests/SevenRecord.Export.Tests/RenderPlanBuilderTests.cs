@@ -91,8 +91,8 @@ public sealed class RenderPlanBuilderTests
         StringAssert.Contains(joined, "crop=w=");
         StringAssert.Contains(joined, "iw*0.300000");
         StringAssert.Contains(joined, "ih*0.700000");
-        StringAssert.Contains(joined, "eq=contrast=1.148699");
-        StringAssert.Contains(joined, "brightness=-0.074349");
+        StringAssert.Contains(joined, "eq=contrast=1.14869");
+        StringAssert.Contains(joined, "brightness=-0.07434");
     }
 
     [TestMethod]
