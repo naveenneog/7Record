@@ -106,6 +106,7 @@ static object CreateHealthResult(string relativePath, AudioCaptureHealth? health
     observedSeconds = health?.Drift.ObservedDuration.TotalSeconds ?? 0,
     discontinuities = health?.Discontinuities ?? 0,
     totalMissingMilliseconds = health?.TotalMissingDuration.TotalMilliseconds ?? 0,
+    queueOverflows = health?.QueueOverflows ?? 0,
 };
 
 static WaveOutEvent CreateTone()

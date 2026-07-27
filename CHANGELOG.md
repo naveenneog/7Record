@@ -21,6 +21,9 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Validated complete caption documents for ordering, overlap, and recording bounds before accepting edits.
 - Sorted SRT/VTT output by caption start time.
 - Disabled project opening for Needs Attention and Corrupt library states.
+- Moved microphone and system-audio packet processing off NAudio callback threads onto independent bounded consumers.
+- Added explicit audio queue-overflow telemetry and live/final quality warnings.
+- Preserved partial audio publication when a source writer fails instead of abandoning all previously captured audio.
 
 ### Validation
 
@@ -30,6 +33,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Unsigned x64 MSIX generated successfully and contains 472 media-worker payload entries.
 - Editor tests: 7 passed; transcription tests: 3 passed.
 - UIA playback/navigation/adaptive gate passed at the active 150% DPI scale.
+- Audio and recording tests pass with the queued capture path; the 8-second Remote Audio probe improved from 2,225.8 ms missing to 335.5 ms with zero queue overflows.
 
 ### Added
 

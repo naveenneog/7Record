@@ -125,6 +125,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Highest-priority defects are missing production segment rollover (P0), severe Remote Audio microphone loss, multi-segment downstream omissions, editor recovery validation gaps, destructive export failure behavior, release/MSIX `NETSDK1150`, and missing unpackaged media-worker resolution.
 - Release/runtime delivery is repaired: self-contained publish and unsigned x64 MSIX now succeed with the media worker included; direct builds resolve the same worker, and failed FFmpeg exports preserve the prior valid file.
 - Project opening is integrity-gated and transactional, editor choices persist across reopen, captions reject overlap/out-of-range edits, and successful Stop opens the completed recording directly in Projects.
+- WASAPI callbacks now only timestamp and enqueue owned packets; background consumers perform WAV writes and telemetry. Remote Audio loss improved substantially but remains device-side risk and is now surfaced live and in finalization warnings.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

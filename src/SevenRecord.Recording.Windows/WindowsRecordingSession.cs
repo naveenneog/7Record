@@ -422,6 +422,7 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
                 audioResult = await _audio.PublishAsync(
                     activeDuration,
                     CancellationToken.None);
+                AddAudioQualityIssues(_audio, audioResult, issues);
             }
             catch (Exception exception)
             {
@@ -624,4 +625,46 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
             component,
             RecordingIssueSeverity.Warning,
             exception.Message);
+
+    private static void AddAudioQualityIssues(
+        RecoverableAudioRecordingSession session,
+        AudioRecordingResult result,
+        List<WindowsRecordingIssue> issues)
+    {
+        AddAudioTrackIssue(
+            "microphone",
+            result.MicrophoneHealth,
+            session.MicrophoneFailure,
+            issues);
+        AddAudioTrackIssue(
+            "system-audio",
+            result.SystemAudioHealth,
+            session.SystemAudioFailure,
+            issues);
+    }
+
+    private static void AddAudioTrackIssue(
+        string component,
+        AudioCaptureHealth? health,
+        Exception? failure,
+        List<WindowsRecordingIssue> issues)
+    {
+        if (failure is not null)
+        {
+            issues.Add(
+                new WindowsRecordingIssue(
+                    $"{component}-write",
+                    RecordingIssueSeverity.Warning,
+                    $"{component} stopped early: {failure.Message}"));
+        }
+        if (health is not null && AudioCaptureReliability.IsAtRisk(health))
+        {
+            issues.Add(
+                new WindowsRecordingIssue(
+                    $"{component}-quality",
+                    RecordingIssueSeverity.Warning,
+                    $"{component} was saved with unstable delivery: " +
+                    AudioCaptureReliability.Describe(health) + "."));
+        }
+    }
 }

@@ -2383,16 +2383,20 @@ public sealed partial class MainPage : Page, IDisposable
         string missing = health.TotalMissingDuration > TimeSpan.Zero
             ? $", {health.TotalMissingDuration.TotalMilliseconds:0.#} ms missing"
             : string.Empty;
+        string queueOverflows = health.QueueOverflows > 0
+            ? $", {health.QueueOverflows} queue overflows"
+            : string.Empty;
         return
             $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift " +
             $"({health.Drift.PartsPerMillion:+0;-0;0} ppm), " +
-            $"{health.Discontinuities} discontinuities{missing}.";
+            $"{health.Discontinuities} discontinuities{missing}{queueOverflows}.";
     }
 
     private static bool HasAudioSyncRisk(AudioCaptureHealth? health) =>
         health is not null &&
         (health.Drift.Exceeds(AudioDriftWarningThreshold) ||
          health.Discontinuities > 0 ||
+         health.QueueOverflows > 0 ||
          health.TotalMissingDuration >= AudioMissingWarningThreshold);
 
     private void UpdateAudioWarningState()
@@ -2437,7 +2441,8 @@ public sealed partial class MainPage : Page, IDisposable
                 $"Mic {microphoneHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
                 $"{microphoneHealth.Drift.PartsPerMillion:+0;-0;0} ppm, " +
                 $"{microphoneHealth.Discontinuities} discontinuities, " +
-                $"{microphoneHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing");
+                $"{microphoneHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing, " +
+                $"{microphoneHealth.QueueOverflows} queue overflows");
         }
 
         if (HasAudioSyncRisk(systemAudioHealth))
@@ -2446,7 +2451,8 @@ public sealed partial class MainPage : Page, IDisposable
                 $"System {systemAudioHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
                 $"{systemAudioHealth.Drift.PartsPerMillion:+0;-0;0} ppm, " +
                 $"{systemAudioHealth.Discontinuities} discontinuities, " +
-                $"{systemAudioHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing");
+                $"{systemAudioHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing, " +
+                $"{systemAudioHealth.QueueOverflows} queue overflows");
         }
 
         return details.Count == 0

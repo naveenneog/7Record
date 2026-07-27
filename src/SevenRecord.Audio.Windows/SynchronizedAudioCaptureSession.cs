@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using SevenRecord.Capture.Abstractions;
@@ -31,10 +32,14 @@ public sealed record AudioCaptureHealth(
     long Discontinuities,
     TimeSpan TotalMissingDuration,
     TimeSpan LastProjectTime,
-    ClockDriftEstimate Drift);
+    ClockDriftEstimate Drift)
+{
+    public long QueueOverflows { get; init; }
+}
 
 public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
 {
+    private const int PacketQueueCapacity = 512;
     private readonly SourceCapture _microphone;
     private readonly ProjectClock _projectClock;
     private readonly SourceCapture _systemAudio;
@@ -78,9 +83,13 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
 
     public event Action<AudioCaptureHealth>? HealthChanged;
 
+    public Exception? MicrophoneFailure => _microphone.ConsumerFailure;
+
     public string MicrophoneName => _microphone.Device.FriendlyName;
 
     public string SystemAudioName => _systemAudio.Device.FriendlyName;
+
+    public Exception? SystemAudioFailure => _systemAudio.ConsumerFailure;
 
     public WaveFormat MicrophoneFormat => _microphone.Capture.WaveFormat;
 
@@ -94,6 +103,8 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
         }
 
         _started = true;
+        _microphone.StartConsumer(ProcessPacketsAsync);
+        _systemAudio.StartConsumer(ProcessPacketsAsync);
         _microphone.Capture.StartRecording();
         try
         {
@@ -124,6 +135,11 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
         await Task.WhenAll(
             _microphone.WaitForStoppedAsync(cancellationToken),
             _systemAudio.WaitForStoppedAsync(cancellationToken));
+        _microphone.CompleteQueue();
+        _systemAudio.CompleteQueue();
+        await Task.WhenAll(
+            _microphone.WaitForConsumerAsync(cancellationToken),
+            _systemAudio.WaitForConsumerAsync(cancellationToken));
     }
 
     public async ValueTask DisposeAsync()
@@ -140,21 +156,57 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
     }
 
     private void OnMicrophoneData(object? sender, WaveInEventArgs args) =>
-        PublishPacket(_microphone, args);
+        EnqueuePacket(_microphone, args);
 
     private void OnSystemAudioData(object? sender, WaveInEventArgs args) =>
-        PublishPacket(_systemAudio, args);
+        EnqueuePacket(_systemAudio, args);
 
-    private void PublishPacket(SourceCapture source, WaveInEventArgs args)
+    private void EnqueuePacket(SourceCapture source, WaveInEventArgs args)
     {
         if (args.BytesRecorded == 0)
         {
             return;
         }
 
+        byte[] buffer = GC.AllocateUninitializedArray<byte>(args.BytesRecorded);
+        args.Buffer.AsSpan(0, args.BytesRecorded).CopyTo(buffer);
+        CapturedAudioPacket packet = new(
+            buffer,
+            args.BytesRecorded,
+            _projectClock.Normalize(QpcTimestamp.Now()));
+        if (!source.TryEnqueue(packet))
+        {
+            Interlocked.Increment(ref source.QueueOverflows);
+        }
+    }
+
+    private async Task ProcessPacketsAsync(SourceCapture source)
+    {
+        await foreach (CapturedAudioPacket captured in source.ReadPacketsAsync())
+        {
+            if (source.ConsumerFailure is not null)
+            {
+                continue;
+            }
+
+            try
+            {
+                PublishPacket(source, captured);
+            }
+            catch (Exception exception)
+            {
+                source.SetConsumerFailure(exception);
+            }
+        }
+    }
+
+    private void PublishPacket(
+        SourceCapture source,
+        CapturedAudioPacket captured)
+    {
         WaveFormat format = source.Capture.WaveFormat;
-        long frames = args.BytesRecorded / format.BlockAlign;
-        TimeSpan projectTime = _projectClock.Normalize(QpcTimestamp.Now());
+        long frames = captured.Length / format.BlockAlign;
+        TimeSpan projectTime = captured.ProjectTime;
         AudioPacketTiming timing = source.Timeline.AddPacket(
             projectTime,
             frames,
@@ -166,12 +218,12 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
         }
 
         long packets = Interlocked.Increment(ref source.Packets);
-        long bytes = Interlocked.Add(ref source.Bytes, args.BytesRecorded);
+        long bytes = Interlocked.Add(ref source.Bytes, captured.Length);
 
         PacketCaptured?.Invoke(
             new AudioCapturePacket(
                 source.Source,
-                args.Buffer.AsSpan(0, args.BytesRecorded).ToArray(),
+                captured.Buffer,
                 projectTime,
                 timing.SamplePosition,
                 format.SampleRate,
@@ -193,12 +245,31 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
                     Interlocked.Read(ref source.Discontinuities),
                     TimeSpan.FromTicks(Interlocked.Read(ref source.MissingTicks)),
                     projectTime,
-                    timing.Drift));
+                    timing.Drift)
+                {
+                    QueueOverflows = Interlocked.Read(ref source.QueueOverflows),
+                });
         }
     }
 
+    private readonly record struct CapturedAudioPacket(
+        byte[] Buffer,
+        int Length,
+        TimeSpan ProjectTime);
+
     private sealed class SourceCapture : IDisposable
     {
+        private readonly Channel<CapturedAudioPacket> _packets =
+            Channel.CreateBounded<CapturedAudioPacket>(
+                new BoundedChannelOptions(PacketQueueCapacity)
+                {
+                    AllowSynchronousContinuations = false,
+                    FullMode = BoundedChannelFullMode.Wait,
+                    SingleReader = true,
+                    SingleWriter = true,
+                });
+        private Task _consumerTask = Task.CompletedTask;
+
         public SourceCapture(
             AudioCaptureSource source,
             MMDevice device,
@@ -216,11 +287,18 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
 
         public long Bytes;
 
+        private Exception? _consumerFailure;
+
+        public Exception? ConsumerFailure =>
+            Volatile.Read(ref _consumerFailure);
+
         public long Discontinuities;
 
         public long MissingTicks;
 
         public long Packets;
+
+        public long QueueOverflows;
 
         public AudioCaptureSource Source { get; }
 
@@ -231,6 +309,28 @@ public sealed class SynchronizedAudioCaptureSession : IAsyncDisposable
 
         public Task WaitForStoppedAsync(CancellationToken cancellationToken) =>
             Stopped.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+
+        public void CompleteQueue() =>
+            _packets.Writer.TryComplete();
+
+        public IAsyncEnumerable<CapturedAudioPacket> ReadPacketsAsync() =>
+            _packets.Reader.ReadAllAsync();
+
+        public void StartConsumer(
+            Func<SourceCapture, Task> consumer) =>
+            _consumerTask = Task.Run(() => consumer(this));
+
+        public void SetConsumerFailure(Exception exception) =>
+            Interlocked.CompareExchange(
+                ref _consumerFailure,
+                exception,
+                null);
+
+        public bool TryEnqueue(CapturedAudioPacket packet) =>
+            _packets.Writer.TryWrite(packet);
+
+        public Task WaitForConsumerAsync(CancellationToken cancellationToken) =>
+            _consumerTask.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
 
         public void Dispose()
         {

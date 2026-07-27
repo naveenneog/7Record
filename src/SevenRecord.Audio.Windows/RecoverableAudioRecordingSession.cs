@@ -75,6 +75,14 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
 
     public event Action<AudioCaptureHealth>? HealthChanged;
 
+    public AudioCaptureHealth? MicrophoneHealth => _microphoneHealth;
+
+    public Exception? MicrophoneFailure => _capture.MicrophoneFailure;
+
+    public AudioCaptureHealth? SystemAudioHealth => _systemAudioHealth;
+
+    public Exception? SystemAudioFailure => _capture.SystemAudioFailure;
+
     public static RecoverableAudioRecordingSession Start(
         string projectRoot,
         ProjectClock projectClock,
@@ -199,17 +207,23 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         }
 
         _stopped = true;
-        await _capture.StopAsync(cancellationToken);
-        _capture.PacketCaptured -= OnPacketCaptured;
-        _capture.HealthChanged -= OnHealthChanged;
-        lock (_microphoneGate)
+        try
         {
-            _microphoneWriter.Dispose();
+            await _capture.StopAsync(cancellationToken);
         }
-
-        lock (_systemAudioGate)
+        finally
         {
-            _systemAudioWriter.Dispose();
+            _capture.PacketCaptured -= OnPacketCaptured;
+            _capture.HealthChanged -= OnHealthChanged;
+            lock (_microphoneGate)
+            {
+                _microphoneWriter.Dispose();
+            }
+
+            lock (_systemAudioGate)
+            {
+                _systemAudioWriter.Dispose();
+            }
         }
     }
 
