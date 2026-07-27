@@ -110,6 +110,30 @@ if (string.Equals(args[0], "concat-media", StringComparison.OrdinalIgnoreCase) &
     return result.Succeeded ? 0 : 1;
 }
 
+if (string.Equals(args[0], "detect-silence", StringComparison.OrdinalIgnoreCase) &&
+    args.Length == 3)
+{
+    try
+    {
+        IReadOnlyList<AudioSilenceInterval> intervals =
+            await FfmpegSilenceDetector.DetectAsync(args[1]);
+        await File.WriteAllTextAsync(
+            args[2],
+            JsonSerializer.Serialize(intervals, serializerOptions));
+        SilenceDetectionWorkerResult result =
+            new(true, intervals.Count, null);
+        Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        SilenceDetectionWorkerResult result =
+            new(false, 0, exception.Message);
+        Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
+        return 1;
+    }
+}
+
 PrintUsage();
 return 2;
 
@@ -125,4 +149,6 @@ static void PrintUsage()
         "  SevenRecord.Media.Worker detect-loading <screen-media> <output-json>");
     Console.Error.WriteLine(
         "  SevenRecord.Media.Worker concat-media <output-media> <input-media>...");
+    Console.Error.WriteLine(
+        "  SevenRecord.Media.Worker detect-silence <audio-media> <output-json>");
 }

@@ -111,6 +111,41 @@ public sealed class ProjectPostProcessingPipelineTests
             await File.WriteAllBytesAsync(
                 Path.Combine(project, "screen-2.mp4"),
                 [0]);
+            await File.WriteAllBytesAsync(
+                Path.Combine(project, "microphone.wav"),
+                [0]);
+            await File.WriteAllTextAsync(
+                Path.Combine(project, "cursor-events.json"),
+                JsonSerializer.Serialize(
+                    new CursorMetadataDocument(
+                        1,
+                        [
+                            new CursorMetadataEvent(
+                                TimeSpan.FromSeconds(1.9),
+                                10,
+                                10,
+                                0.5,
+                                0.5,
+                                CursorEventKind.Move,
+                                CursorButton.None),
+                            new CursorMetadataEvent(
+                                TimeSpan.FromSeconds(3),
+                                10,
+                                10,
+                                0.5,
+                                0.5,
+                                CursorEventKind.Move,
+                                CursorButton.None),
+                            new CursorMetadataEvent(
+                                TimeSpan.FromSeconds(4.9),
+                                10,
+                                10,
+                                0.5,
+                                0.5,
+                                CursorEventKind.Move,
+                                CursorButton.None)
+                        ])));
+            await WriteAudioTimingAsync(project);
             using (RecordingJournal journal = new(
                        Path.Combine(project, "recording.journal")))
             {
@@ -121,11 +156,22 @@ public sealed class ProjectPostProcessingPipelineTests
                         2,
                         "screen-2.mp4",
                         TimeSpan.FromSeconds(5)));
+                await journal.AppendAsync(
+                    new RecordingSegmentEntry(
+                        3,
+                        "microphone",
+                        "microphone",
+                        "microphone.wav",
+                        0,
+                        TimeSpan.FromSeconds(10).Ticks,
+                        1,
+                        new string('A', 64)));
             }
 
             ProjectPostProcessingPipeline pipeline = new(
                 FakeLoadingDetectionAsync,
-                FakeConcatenationAsync);
+                FakeConcatenationAsync,
+                FakeSilenceDetectionAsync);
             ProjectPostProcessingResult result =
                 await pipeline.RunAsync(project, workerPath);
             LoadingSpeedEvent[] events = JsonSerializer.Deserialize<
@@ -137,6 +183,61 @@ public sealed class ProjectPostProcessingPipelineTests
             Assert.IsTrue(result.Succeeded);
             Assert.HasCount(1, events);
             Assert.AreEqual(TimeSpan.FromSeconds(2), events[0].Start);
+        }
+        finally
+        {
+            Directory.Delete(project, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ConfidenceFailureInvalidatesExistingLoadingPlan()
+    {
+        string project = CreateTemporaryProject();
+        try
+        {
+            string workerPath = Path.Combine(project, "worker.exe");
+            await File.WriteAllBytesAsync(workerPath, [0]);
+            await File.WriteAllBytesAsync(
+                Path.Combine(project, "screen.mp4"),
+                [0]);
+            await File.WriteAllBytesAsync(
+                Path.Combine(project, "microphone.wav"),
+                [0]);
+            await File.WriteAllTextAsync(
+                Path.Combine(project, "cursor-events.json"),
+                JsonSerializer.Serialize(
+                    new CursorMetadataDocument(1, [])));
+            string loadingPath = Path.Combine(
+                project,
+                "loading-speed-plan.json");
+            await File.WriteAllTextAsync(loadingPath, "[{\"old\":true}]");
+            using (RecordingJournal journal = new(
+                       Path.Combine(project, "recording.journal")))
+            {
+                await journal.AppendAsync(
+                    ScreenEntry(1, "screen.mp4", TimeSpan.Zero));
+                await journal.AppendAsync(
+                    new RecordingSegmentEntry(
+                        2,
+                        "microphone",
+                        "microphone",
+                        "microphone.wav",
+                        0,
+                        TimeSpan.FromSeconds(5).Ticks,
+                        1,
+                        new string('A', 64)));
+            }
+            ProjectPostProcessingPipeline pipeline = new(
+                FakeLoadingDetectionAsync,
+                FakeConcatenationAsync,
+                FakeSilenceFailureAsync);
+
+            ProjectPostProcessingResult result =
+                await pipeline.RunAsync(project, workerPath);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsFalse(File.Exists(loadingPath));
         }
         finally
         {
@@ -250,6 +351,41 @@ public sealed class ProjectPostProcessingPipelineTests
             [0],
             cancellationToken);
         return new SegmentConcatenationResult(true, outputPath, null);
+    }
+
+    private static Task<SilenceDetectionWorkerResult>
+        FakeSilenceFailureAsync(
+            string workerPath,
+            string audioMediaPath,
+            string outputJsonPath,
+            CancellationToken cancellationToken) =>
+        Task.FromResult(
+            new SilenceDetectionWorkerResult(
+                false,
+                0,
+                "Synthetic silence failure."));
+
+    private static async Task<SilenceDetectionWorkerResult>
+        FakeSilenceDetectionAsync(
+            string workerPath,
+            string audioMediaPath,
+            string outputJsonPath,
+            CancellationToken cancellationToken)
+    {
+        AudioSilenceInterval[] intervals =
+        [
+            new(
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(10))
+        ];
+        await File.WriteAllTextAsync(
+            outputJsonPath,
+            JsonSerializer.Serialize(intervals),
+            cancellationToken);
+        return new SilenceDetectionWorkerResult(
+            true,
+            intervals.Length,
+            null);
     }
 
     private static async Task<Dictionary<string, string>> ReadPlansAsync(

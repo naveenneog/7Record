@@ -44,6 +44,12 @@ public delegate Task<SegmentConcatenationResult> SegmentConcatenationRunner(
     string outputPath,
     CancellationToken cancellationToken);
 
+public delegate Task<SilenceDetectionWorkerResult> SilenceDetectionRunner(
+    string workerPath,
+    string audioMediaPath,
+    string outputJsonPath,
+    CancellationToken cancellationToken);
+
 public sealed class ProjectPostProcessingPipeline
 {
     public const string AudioRepairStage = "audio-repair";
@@ -55,16 +61,20 @@ public sealed class ProjectPostProcessingPipeline
     private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(false);
     private readonly LoadingDetectionRunner _loadingDetectionRunner;
     private readonly SegmentConcatenationRunner _segmentConcatenationRunner;
+    private readonly SilenceDetectionRunner _silenceDetectionRunner;
 
     public ProjectPostProcessingPipeline(
         LoadingDetectionRunner? loadingDetectionRunner = null,
-        SegmentConcatenationRunner? segmentConcatenationRunner = null)
+        SegmentConcatenationRunner? segmentConcatenationRunner = null,
+        SilenceDetectionRunner? silenceDetectionRunner = null)
     {
         _loadingDetectionRunner =
             loadingDetectionRunner ?? MediaWorkerLoadingClient.DetectAsync;
         _segmentConcatenationRunner =
             segmentConcatenationRunner ??
             MediaWorkerConcatenationClient.ConcatenateAsync;
+        _silenceDetectionRunner =
+            silenceDetectionRunner ?? MediaWorkerSilenceClient.DetectAsync;
     }
 
     public async Task<ProjectPostProcessingResult> RunAsync(
@@ -184,35 +194,36 @@ public sealed class ProjectPostProcessingPipeline
 
             string? concatenatedPath = null;
             string analysisPath = screenPaths[0];
-            if (screenPaths.Count > 1)
-            {
-                concatenatedPath = Path.Combine(
-                    projectRoot,
-                    "temp",
-                    $"loading-analysis-{Guid.NewGuid():N}.mp4");
-                Directory.CreateDirectory(
-                    Path.GetDirectoryName(concatenatedPath)!);
-                SegmentConcatenationResult concatenation =
-                    await _segmentConcatenationRunner(
-                        Path.GetFullPath(mediaWorkerPath),
-                        screenPaths,
-                        concatenatedPath,
-                        cancellationToken);
-                if (!concatenation.Succeeded)
-                {
-                    return Failed(
-                        LoadingSpeedStage,
-                        new InvalidOperationException(
-                            concatenation.Error ??
-                            "Screen segments could not be joined."));
-                }
-                analysisPath = concatenation.OutputPath;
-            }
-
             string workerOutputPath =
                 outputPath + $".worker-{Guid.NewGuid():N}.tmp";
             try
             {
+                if (screenPaths.Count > 1)
+                {
+                    concatenatedPath = Path.Combine(
+                        projectRoot,
+                        "temp",
+                        $"loading-analysis-{Guid.NewGuid():N}.mp4");
+                    Directory.CreateDirectory(
+                        Path.GetDirectoryName(concatenatedPath)!);
+                    SegmentConcatenationResult concatenation =
+                        await _segmentConcatenationRunner(
+                            Path.GetFullPath(mediaWorkerPath),
+                            screenPaths,
+                            concatenatedPath,
+                            cancellationToken);
+                    if (!concatenation.Succeeded)
+                    {
+                        InvalidatePlan(outputPath);
+                        return Failed(
+                            LoadingSpeedStage,
+                            new InvalidOperationException(
+                                concatenation.Error ??
+                                "Screen segments could not be joined."));
+                    }
+                    analysisPath = concatenation.OutputPath;
+                }
+
                 LoadingDetectionWorkerResult workerResult =
                     await _loadingDetectionRunner(
                         Path.GetFullPath(mediaWorkerPath),
@@ -221,6 +232,7 @@ public sealed class ProjectPostProcessingPipeline
                         cancellationToken);
                 if (!workerResult.Succeeded)
                 {
+                    InvalidatePlan(outputPath);
                     return new ProjectPostProcessingStageResult(
                         LoadingSpeedStage,
                         ProjectPostProcessingStageState.Failed,
@@ -233,7 +245,78 @@ public sealed class ProjectPostProcessingPipeline
                     await ReadRequiredJsonAsync<LoadingSpeedEvent[]>(
                         workerOutputPath,
                         cancellationToken);
-                LoadingSpeedEvent[] normalized = events
+                CursorMetadataDocument? cursor = await TryReadJsonAsync<
+                    CursorMetadataDocument>(
+                    Path.Combine(projectRoot, "cursor-events.json"),
+                    cancellationToken);
+                AudioTimingManifest? audioTiming =
+                    await TryReadJsonAsync<AudioTimingManifest>(
+                        Path.Combine(projectRoot, "audio-timing.json"),
+                        cancellationToken);
+                HashSet<AudioTrackKind> journaledAudioTracks = replay.Entries
+                    .Where(entry => entry.SourceId is
+                        "microphone" or "system-audio")
+                    .Select(entry => entry.SourceId == "microphone"
+                        ? AudioTrackKind.Microphone
+                        : AudioTrackKind.SystemAudio)
+                    .ToHashSet();
+                HashSet<AudioTrackKind> timedAudioTracks =
+                    audioTiming?.Tracks
+                        .Select(track => track.Track)
+                        .ToHashSet() ?? [];
+                if (!journaledAudioTracks.IsSubsetOf(timedAudioTracks))
+                {
+                    throw new InvalidDataException(
+                        "Loading confidence requires timing metadata for every audio track.");
+                }
+                AudioGapMetadata[] microphoneGaps = audioTiming?.Tracks
+                    .Where(track =>
+                        track.Track is AudioTrackKind.Microphone)
+                    .SelectMany(track => track.Gaps)
+                    .OrderBy(gap => gap.Start)
+                    .ToArray() ?? [];
+                AudioGapMetadata[] systemAudioGaps = audioTiming?.Tracks
+                    .Where(track =>
+                        track.Track is AudioTrackKind.SystemAudio)
+                    .SelectMany(track => track.Gaps)
+                    .OrderBy(gap => gap.Start)
+                    .ToArray() ?? [];
+                AudioGapMetadata[] allAudioGaps =
+                [
+                    .. microphoneGaps,
+                    .. systemAudioGaps,
+                ];
+                List<IReadOnlyList<AudioSilenceInterval>> audioSilence = [];
+                IReadOnlyList<AudioSilenceInterval>? microphoneSilence =
+                    await DetectAudioSilenceAsync(
+                        projectRoot,
+                        replay,
+                        "microphone",
+                        Path.GetFullPath(mediaWorkerPath),
+                        microphoneGaps,
+                        cancellationToken);
+                if (microphoneSilence is not null)
+                {
+                    audioSilence.Add(microphoneSilence);
+                }
+                IReadOnlyList<AudioSilenceInterval>? systemSilence =
+                    await DetectAudioSilenceAsync(
+                        projectRoot,
+                        replay,
+                        "system-audio",
+                        Path.GetFullPath(mediaWorkerPath),
+                        systemAudioGaps,
+                        cancellationToken);
+                if (systemSilence is not null)
+                {
+                    audioSilence.Add(systemSilence);
+                }
+                LoadingSpeedEvent[] normalized =
+                    LoadingConfidencePlanner.Refine(
+                            events,
+                            cursor,
+                            audioSilence,
+                            allAudioGaps)
                 .Select((item, index) => item with
                 {
                     Id = $"loading-{index:D4}-{item.Start.Ticks:x16}",
@@ -260,10 +343,121 @@ public sealed class ProjectPostProcessingPipeline
                     File.Delete(concatenatedPath);
                 }
             }
+
+        }
+        catch (OperationCanceledException)
+        {
+            InvalidatePlan(outputPath);
+            throw;
         }
         catch (Exception exception) when (IsStageFailure(exception))
         {
+            InvalidatePlan(outputPath);
             return Failed(LoadingSpeedStage, exception);
+        }
+    }
+
+    private async Task<IReadOnlyList<AudioSilenceInterval>?>
+        DetectAudioSilenceAsync(
+            string projectRoot,
+            RecordingJournalReplay replay,
+            string sourceId,
+            string mediaWorkerPath,
+            IReadOnlyList<AudioGapMetadata> audioGaps,
+            CancellationToken cancellationToken)
+    {
+        RecordingSegmentEntry[] entries = replay.Entries
+            .Where(entry => string.Equals(
+                entry.SourceId,
+                sourceId,
+                StringComparison.OrdinalIgnoreCase))
+            .OrderBy(entry => entry.StartTicks)
+            .ThenBy(entry => entry.Sequence)
+            .ToArray();
+        if (entries.Length == 0)
+        {
+            return null;
+        }
+
+        List<AudioSilenceInterval> allIntervals = [];
+        foreach (RecordingSegmentEntry entry in entries)
+        {
+            string analysisPath = RecordingPathGuard.ResolveWithinRoot(
+                projectRoot,
+                entry.RelativePath);
+            string silenceOutputPath = Path.Combine(
+                projectRoot,
+                "temp",
+                $"{sourceId}-silence-{Guid.NewGuid():N}.json");
+            try
+            {
+                SilenceDetectionWorkerResult result =
+                    await _silenceDetectionRunner(
+                        mediaWorkerPath,
+                        analysisPath,
+                        silenceOutputPath,
+                        cancellationToken);
+                if (!result.Succeeded)
+                {
+                    throw new InvalidOperationException(
+                        result.Error ??
+                        $"{sourceId} silence detection failed.");
+                }
+                AudioSilenceInterval[] intervals =
+                    await ReadRequiredJsonAsync<AudioSilenceInterval[]>(
+                        silenceOutputPath,
+                        cancellationToken);
+                TimeSpan segmentStart =
+                    TimeSpan.FromTicks(entry.StartTicks);
+                allIntervals.AddRange(
+                    intervals.Select(interval => interval with
+                    {
+                        Start = MapAudioTimeToProject(
+                            segmentStart,
+                            interval.Start,
+                            audioGaps),
+                        Duration =
+                            MapAudioTimeToProject(
+                                segmentStart,
+                                interval.End,
+                                audioGaps) -
+                            MapAudioTimeToProject(
+                                segmentStart,
+                                interval.Start,
+                                audioGaps),
+                    }));
+            }
+            finally
+            {
+                if (File.Exists(silenceOutputPath))
+                {
+                    File.Delete(silenceOutputPath);
+                }
+            }
+        }
+        return allIntervals;
+    }
+
+    private static TimeSpan MapAudioTimeToProject(
+        TimeSpan segmentStart,
+        TimeSpan mediaTime,
+        IReadOnlyList<AudioGapMetadata> audioGaps)
+    {
+        TimeSpan projectTime = segmentStart + mediaTime;
+        while (true)
+        {
+            TimeSpan missing = TimeSpan.FromTicks(
+                audioGaps
+                    .Where(gap =>
+                        gap.Start >= segmentStart &&
+                        gap.Start <= projectTime)
+                    .Sum(gap => gap.Duration.Ticks));
+            TimeSpan adjusted = segmentStart + mediaTime + missing;
+            if (adjusted == projectTime)
+            {
+                return adjusted;
+            }
+            projectTime = adjusted;
         }
     }
 
@@ -305,6 +499,26 @@ public sealed class ProjectPostProcessingPipeline
         return JsonSerializer.Deserialize<T>(json, SerializerOptions) ??
             throw new InvalidDataException(
                 $"'{Path.GetFileName(path)}' is empty or invalid.");
+    }
+
+    private static async Task<T?> TryReadJsonAsync<T>(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path))
+        {
+            return default;
+        }
+        string json = await File.ReadAllTextAsync(path, cancellationToken);
+        return JsonSerializer.Deserialize<T>(json, SerializerOptions);
+    }
+
+    private static void InvalidatePlan(string outputPath)
+    {
+        if (File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
     }
 
     private static async Task<bool> WriteJsonIfChangedAsync<T>(

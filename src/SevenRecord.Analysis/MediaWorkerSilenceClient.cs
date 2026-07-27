@@ -1,19 +1,23 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
-using SevenRecord.Media;
 
 namespace SevenRecord.Analysis;
 
-public static class MediaWorkerConcatenationClient
+public sealed record SilenceDetectionWorkerResult(
+    bool Succeeded,
+    int Intervals,
+    string? Error);
+
+public static class MediaWorkerSilenceClient
 {
     private static readonly JsonSerializerOptions SerializerOptions =
         new(JsonSerializerDefaults.Web);
 
-    public static async Task<SegmentConcatenationResult> ConcatenateAsync(
+    public static async Task<SilenceDetectionWorkerResult> DetectAsync(
         string workerPath,
-        IReadOnlyList<string> inputPaths,
-        string outputPath,
+        string audioMediaPath,
+        string outputJsonPath,
         CancellationToken cancellationToken = default)
     {
         ProcessStartInfo startInfo = new()
@@ -24,24 +28,19 @@ public static class MediaWorkerConcatenationClient
             RedirectStandardOutput = true,
             UseShellExecute = false,
         };
-        startInfo.ArgumentList.Add("concat-media");
-        startInfo.ArgumentList.Add(Path.GetFullPath(outputPath));
-        foreach (string inputPath in inputPaths)
-        {
-            startInfo.ArgumentList.Add(Path.GetFullPath(inputPath));
-        }
-
+        startInfo.ArgumentList.Add("detect-silence");
+        startInfo.ArgumentList.Add(Path.GetFullPath(audioMediaPath));
+        startInfo.ArgumentList.Add(Path.GetFullPath(outputJsonPath));
         try
         {
             using Process worker = new() { StartInfo = startInfo };
             if (!worker.Start())
             {
-                return new SegmentConcatenationResult(
+                return new SilenceDetectionWorkerResult(
                     false,
-                    outputPath,
+                    0,
                     "The media worker could not be started.");
             }
-
             Task<string> output =
                 worker.StandardOutput.ReadToEndAsync(cancellationToken);
             Task<string> error =
@@ -57,21 +56,21 @@ public static class MediaWorkerConcatenationClient
             }
             string json = await output;
             string standardError = await error;
-            return JsonSerializer.Deserialize<SegmentConcatenationResult>(
+            return JsonSerializer.Deserialize<SilenceDetectionWorkerResult>(
                     json,
                     SerializerOptions) ??
-                new SegmentConcatenationResult(
+                new SilenceDetectionWorkerResult(
                     false,
-                    outputPath,
+                    0,
                     string.IsNullOrWhiteSpace(standardError)
-                        ? "The media worker returned an invalid result."
+                        ? "The media worker returned an invalid silence result."
                         : standardError.Trim());
         }
         catch (Win32Exception exception)
         {
-            return new SegmentConcatenationResult(
+            return new SilenceDetectionWorkerResult(
                 false,
-                outputPath,
+                0,
                 exception.Message);
         }
     }

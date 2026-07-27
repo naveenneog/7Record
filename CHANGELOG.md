@@ -31,6 +31,11 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Made playback, captions, loading analysis, and export consume every ordered source segment.
 - Consolidated long segment lists inside the isolated media worker via FFmpeg concat manifests, avoiding Windows command-line limits.
 - Restored loading detection across segment boundaries by analyzing one consolidated screen source.
+- Replaced visual-only loading speed-ups with a fail-closed confidence planner requiring cursor coverage and silence on every available audio track.
+- Ignored stationary cursor heartbeat samples while treating real movement and clicks as activity.
+- Mapped silence evidence through each track's recorded audio dropouts.
+- Invalidated stale loading plans when confidence analysis fails or is canceled.
+- Terminated concatenation and silence worker process trees on cancellation.
 
 ### Validation
 
@@ -46,6 +51,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Cross-boundary loading fixture detected a two-second freeze spanning two five-second source segments.
 - Full build completed with zero warnings/errors; automated and UIA suites passed.
 - Camera studio release suite: 102 tests passed, zero warnings/errors, UIA passed.
+- Loading confidence release suite: 100 tests passed, zero warnings/errors; synthetic silent audio produced one silence interval while audible audio produced none.
 - Redirected camera sources were enumerated but delivered no frames during final camera-studio hardware validation; device acceptance must be rerun outside the current Remote Desktop state.
 
 ### Added
