@@ -270,3 +270,12 @@ Do not publish an installer or describe the recorder as crash-safe until:
 
 The Windows picker must also be retested on a local console and installed MSIX. If it still returns silently, treat it as a hard recording blocker.
 
+## Overdrive remediation — 2026-07-27
+
+- **QA-20260726-02:** production five-second rollover is now wired for screen, microphone, system audio, and camera. A forced-kill audio run preserved ten journaled segments and left only active partials.
+- **QA-20260726-03:** playback, captions, loading analysis, and export now consume ordered multi-segment sources.
+- **QA-20260726-07:** export now renders to a partial file and atomically replaces the prior valid MP4 only after success.
+- **QA-20260726-16:** self-contained x64 publish and unsigned x64 MSIX now succeed with the media worker included.
+- **QA-20260726-17:** packaged and unpackaged worker locations resolve through one runtime locator.
+- Real multi-segment H.264/AAC export and cross-boundary loading detection passed.
+- Redirected cameras were unavailable during rollover acceptance testing; camera rollover compiled, passed code review, and must be rerun when the remote camera resumes frame delivery.

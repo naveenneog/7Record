@@ -42,31 +42,31 @@ public static class FfmpegRenderPlanExporter
                 string.Join(", ", unsupported.Select(item => item.Kind).Distinct()));
         }
 
-        TimelineClip screen = plan.Clips
-            .FirstOrDefault(clip => clip.Track is TimelineTrackKind.Screen)
-            ?? throw new InvalidOperationException("The render plan has no screen source.");
-        TimelineClip? camera = plan.Clips
-            .FirstOrDefault(clip => clip.Track is TimelineTrackKind.Camera);
-        TimelineClip? microphone = plan.Clips
-            .FirstOrDefault(clip => clip.Track is TimelineTrackKind.Microphone);
-        TimelineClip? systemAudio = plan.Clips
-            .FirstOrDefault(clip => clip.Track is TimelineTrackKind.SystemAudio);
-
-        List<TimelineClip> inputs = [screen];
-        if (camera is not null)
+        TimelineClip[] screenClips = ClipsFor(
+            plan,
+            TimelineTrackKind.Screen);
+        if (screenClips.Length == 0)
         {
-            inputs.Add(camera);
+            throw new InvalidOperationException(
+                "The render plan has no screen source.");
         }
+        TimelineClip[] cameraClips = ClipsFor(
+            plan,
+            TimelineTrackKind.Camera);
+        TimelineClip[] microphoneClips = ClipsFor(
+            plan,
+            TimelineTrackKind.Microphone);
+        TimelineClip[] systemAudioClips = ClipsFor(
+            plan,
+            TimelineTrackKind.SystemAudio);
 
-        if (microphone is not null)
-        {
-            inputs.Add(microphone);
-        }
-
-        if (systemAudio is not null)
-        {
-            inputs.Add(systemAudio);
-        }
+        List<TimelineClip> inputs =
+        [
+            .. screenClips,
+            .. cameraClips,
+            .. microphoneClips,
+            .. systemAudioClips,
+        ];
 
         List<string> arguments = ["-hide_banner", "-loglevel", "error", "-y"];
         foreach (TimelineClip input in inputs)
@@ -75,10 +75,10 @@ public static class FfmpegRenderPlanExporter
             arguments.Add(ResolveSourcePath(plan.ProjectPath, input.SourcePath));
         }
 
-        int screenIndex = inputs.IndexOf(screen);
-        int cameraIndex = camera is null ? -1 : inputs.IndexOf(camera);
-        int microphoneIndex = microphone is null ? -1 : inputs.IndexOf(microphone);
-        int systemAudioIndex = systemAudio is null ? -1 : inputs.IndexOf(systemAudio);
+        int[] screenIndices = InputIndices(inputs, screenClips);
+        int[] cameraIndices = InputIndices(inputs, cameraClips);
+        int[] microphoneIndices = InputIndices(inputs, microphoneClips);
+        int[] systemAudioIndices = InputIndices(inputs, systemAudioClips);
         TimeSpan sourceDuration = plan.Clips.Count == 0
             ? plan.Duration
             : plan.Clips.Max(clip => clip.Range.End);
@@ -86,12 +86,17 @@ public static class FfmpegRenderPlanExporter
             .Where(item => item.Kind == "LoadingSpeed")
             .OrderBy(item => item.Range.Start)
             .ToArray();
-        List<string> filters =
-        [
-            $"[{screenIndex}:v]scale={plan.Canvas.Width}:{plan.Canvas.Height}:" +
+        List<string> filters = [];
+        string screenSource = AddConcatFilter(
+            filters,
+            screenClips,
+            screenIndices,
+            "screenSource",
+            isVideo: true);
+        filters.Add(
+            $"[{screenSource}]scale={plan.Canvas.Width}:{plan.Canvas.Height}:" +
             "force_original_aspect_ratio=decrease," +
-            $"pad={plan.Canvas.Width}:{plan.Canvas.Height}:(ow-iw)/2:(oh-ih)/2:color=black[base]"
-        ];
+            $"pad={plan.Canvas.Width}:{plan.Canvas.Height}:(ow-iw)/2:(oh-ih)/2:color=black[base]");
         string screenLabel = "base";
         TimelineAutomationEvent[] zooms = plan.Automation
             .Where(item => item.Kind == "CursorZoom")
@@ -134,9 +139,15 @@ public static class FfmpegRenderPlanExporter
                 presenterLayout,
                 "mode",
                 (double)PresenterLayoutMode.RoundedOverlay);
-        if (cameraIndex >= 0 &&
+        if (cameraIndices.Length > 0 &&
             presenterMode is not PresenterLayoutMode.ScreenOnly)
         {
+            string cameraSource = AddConcatFilter(
+                filters,
+                cameraClips,
+                cameraIndices,
+                "cameraSource",
+                isVideo: true);
             double widthRatio = AutomationValue(
                 presenterLayout,
                 "width",
@@ -175,7 +186,7 @@ public static class FfmpegRenderPlanExporter
                 0,
                 0.5);
             string cameraFilter =
-                $"[{cameraIndex}:v]scale={cameraWidth}:{cameraHeight}:" +
+                $"[{cameraSource}]scale={cameraWidth}:{cameraHeight}:" +
                 "force_original_aspect_ratio=increase," +
                 $"crop={cameraWidth}:{cameraHeight},format=rgba";
             if (cornerRadius >= 0.49)
@@ -217,14 +228,16 @@ public static class FfmpegRenderPlanExporter
             filters,
             audioLabels,
             plan,
-            microphoneIndex,
+            microphoneClips,
+            microphoneIndices,
             TimelineTrackKind.Microphone,
             "microphone");
         AddAudioFilter(
             filters,
             audioLabels,
             plan,
-            systemAudioIndex,
+            systemAudioClips,
+            systemAudioIndices,
             TimelineTrackKind.SystemAudio,
             "system");
         if (audioLabels.Count == 2)
@@ -295,6 +308,10 @@ public static class FfmpegRenderPlanExporter
 
         string fullOutputPath = Path.GetFullPath(outputPath);
         string outputDirectory = Path.GetDirectoryName(fullOutputPath)!;
+        string consolidationRoot = Path.Combine(
+            plan.ProjectPath,
+            "temp",
+            $"export-{Guid.NewGuid():N}");
         string temporaryOutputPath = Path.Combine(
             outputDirectory,
             $".{Path.GetFileNameWithoutExtension(fullOutputPath)}-{Guid.NewGuid():N}.partial.mp4");
@@ -324,10 +341,17 @@ public static class FfmpegRenderPlanExporter
                     cancellationToken);
             }
 
+            RenderPlan preparedPlan = await ConsolidateSegmentsAsync(
+                plan,
+                consolidationRoot,
+                cancellationToken);
             FfmpegExportCommand command;
             try
             {
-                command = CreateCommand(plan, temporaryOutputPath, subtitlePath);
+                command = CreateCommand(
+                    preparedPlan,
+                    temporaryOutputPath,
+                    subtitlePath);
             }
             catch (InvalidOperationException exception)
             {
@@ -407,21 +431,89 @@ public static class FfmpegRenderPlanExporter
             {
                 File.Delete(subtitlePath);
             }
+            if (Directory.Exists(consolidationRoot))
+            {
+                Directory.Delete(consolidationRoot, recursive: true);
+            }
         }
+    }
+
+    private static async Task<RenderPlan> ConsolidateSegmentsAsync(
+        RenderPlan plan,
+        string temporaryRoot,
+        CancellationToken cancellationToken)
+    {
+        List<TimelineClip> consolidated = [];
+        foreach (IGrouping<TimelineTrackKind, TimelineClip> track in plan.Clips
+                     .GroupBy(clip => clip.Track))
+        {
+            TimelineClip[] clips = track
+                .OrderBy(clip => clip.Range.Start)
+                .ToArray();
+            if (clips.Length == 1)
+            {
+                consolidated.Add(clips[0]);
+                continue;
+            }
+
+            ValidateContiguous(clips);
+            Directory.CreateDirectory(temporaryRoot);
+            string extension = Path.GetExtension(clips[0].SourcePath);
+            string outputPath = Path.Combine(
+                temporaryRoot,
+                $"{track.Key}{extension}");
+            SegmentConcatenationResult result =
+                await FfmpegSegmentConcatenator.ConcatenateAsync(
+                    clips.Select(clip =>
+                            ResolveSourcePath(
+                                plan.ProjectPath,
+                                clip.SourcePath))
+                        .ToArray(),
+                    outputPath,
+                    cancellationToken);
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"{track.Key} segments could not be joined: {result.Error}");
+            }
+
+            consolidated.Add(
+                new TimelineClip(
+                    $"{track.Key}-consolidated",
+                    track.Key,
+                    result.OutputPath,
+                    TimelineRange.FromStartAndDuration(
+                        TimeSpan.Zero,
+                        clips[^1].Range.End)));
+        }
+
+        return plan with
+        {
+            Clips = consolidated
+                .OrderBy(clip => clip.Track)
+                .ToArray(),
+        };
     }
 
     private static void AddAudioFilter(
         List<string> filters,
         List<string> labels,
         RenderPlan plan,
-        int inputIndex,
+        TimelineClip[] clips,
+        int[] inputIndices,
         TimelineTrackKind track,
         string label)
     {
-        if (inputIndex < 0)
+        if (inputIndices.Length == 0)
         {
             return;
         }
+        string sourceLabel = AddConcatFilter(
+            filters,
+            clips,
+            inputIndices,
+            $"{label}Source",
+            isVideo: false);
 
         TimelineAutomationEvent? rateEvent = plan.Automation.FirstOrDefault(item =>
             item.TargetTrack == track &&
@@ -453,14 +545,14 @@ public static class FfmpegRenderPlanExporter
         string preparedLabel = $"{label}prepared";
         if (gaps.Length == 0)
         {
-            filters.Add($"[{inputIndex}:a]aresample=48000[{preparedLabel}]");
+            filters.Add($"[{sourceLabel}]aresample=48000[{preparedLabel}]");
         }
         else
         {
             string splitLabels = string.Concat(
                 Enumerable.Range(0, gaps.Length + 1)
                     .Select(index => $"[{label}source{index}]"));
-            filters.Add($"[{inputIndex}:a]asplit={gaps.Length + 1}{splitLabels}");
+            filters.Add($"[{sourceLabel}]asplit={gaps.Length + 1}{splitLabels}");
 
             List<string> concatLabels = [];
             double sourceCursor = 0;
@@ -509,6 +601,71 @@ public static class FfmpegRenderPlanExporter
 
     private static string Seconds(double value) =>
         value.ToString("F6", CultureInfo.InvariantCulture);
+
+    private static TimelineClip[] ClipsFor(
+        RenderPlan plan,
+        TimelineTrackKind track) =>
+        plan.Clips
+            .Where(clip => clip.Track == track)
+            .OrderBy(clip => clip.Range.Start)
+            .ToArray();
+
+    private static int[] InputIndices(
+        List<TimelineClip> inputs,
+        TimelineClip[] clips) =>
+        clips.Select(clip => inputs.IndexOf(clip)).ToArray();
+
+    private static string AddConcatFilter(
+        List<string> filters,
+        TimelineClip[] clips,
+        int[] inputIndices,
+        string label,
+        bool isVideo)
+    {
+        if (clips.Length != inputIndices.Length)
+        {
+            throw new ArgumentException(
+                "Clip and input index counts must match.");
+        }
+        if (clips.Length == 1)
+        {
+            return $"{inputIndices[0]}:{(isVideo ? "v" : "a")}";
+        }
+
+        ValidateContiguous(clips);
+        List<string> parts = [];
+        for (int index = 0; index < clips.Length; index++)
+        {
+            string part = $"{label}Part{index}";
+            filters.Add(
+                $"[{inputIndices[index]}:{(isVideo ? "v" : "a")}]" +
+                $"{(isVideo ? "setpts=PTS-STARTPTS" : "asetpts=PTS-STARTPTS")}" +
+                $"[{part}]");
+            parts.Add($"[{part}]");
+        }
+        filters.Add(
+            string.Concat(parts) +
+            $"concat=n={parts.Count}:v={(isVideo ? 1 : 0)}:" +
+            $"a={(isVideo ? 0 : 1)}[{label}]");
+        return label;
+    }
+
+    private static void ValidateContiguous(
+        IReadOnlyList<TimelineClip> clips)
+    {
+        TimeSpan expectedStart = TimeSpan.Zero;
+        foreach (TimelineClip clip in clips)
+        {
+            TimeSpan difference = clip.Range.Start - expectedStart;
+            if (difference.Duration() > TimeSpan.FromMilliseconds(150))
+            {
+                throw new InvalidOperationException(
+                    $"{clip.Track} segments are not contiguous at " +
+                    $"{clip.Range.Start:hh\\:mm\\:ss\\.fff}.");
+            }
+            expectedStart = clip.Range.End;
+        }
+    }
 
     private static int EvenDimension(double value)
     {

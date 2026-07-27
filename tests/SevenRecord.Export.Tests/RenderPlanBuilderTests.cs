@@ -305,6 +305,82 @@ public sealed class RenderPlanBuilderTests
         }
     }
 
+    [TestMethod]
+    public void MultiSegmentSourcesAreConcatenated()
+    {
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(10),
+            [
+                ClipAt(
+                    "screen-1",
+                    TimelineTrackKind.Screen,
+                    "screen-1.mp4",
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(5)),
+                ClipAt(
+                    "screen-2",
+                    TimelineTrackKind.Screen,
+                    "screen-2.mp4",
+                    TimeSpan.FromSeconds(5),
+                    TimeSpan.FromSeconds(5)),
+                ClipAt(
+                    "mic-1",
+                    TimelineTrackKind.Microphone,
+                    "mic-1.wav",
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(5)),
+                ClipAt(
+                    "mic-2",
+                    TimelineTrackKind.Microphone,
+                    "mic-2.wav",
+                    TimeSpan.FromSeconds(5),
+                    TimeSpan.FromSeconds(5))
+            ],
+            []);
+
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                RenderPlanBuilder.Build(
+                    timeline,
+                    ExportAspectRatioPreset.Landscape1080p),
+                "C:\\output\\video.mp4").Arguments);
+
+        StringAssert.Contains(command, "concat=n=2:v=1:a=0[screenSource]");
+        StringAssert.Contains(command, "concat=n=2:v=0:a=1[microphoneSource]");
+    }
+
+    [TestMethod]
+    public void MultiSegmentGapFailsExplicitly()
+    {
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(11),
+            [
+                ClipAt(
+                    "screen-1",
+                    TimelineTrackKind.Screen,
+                    "screen-1.mp4",
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(5)),
+                ClipAt(
+                    "screen-2",
+                    TimelineTrackKind.Screen,
+                    "screen-2.mp4",
+                    TimeSpan.FromSeconds(6),
+                    TimeSpan.FromSeconds(5))
+            ],
+            []);
+
+        Assert.ThrowsExactly<InvalidOperationException>(
+            () => FfmpegRenderPlanExporter.CreateCommand(
+                RenderPlanBuilder.Build(
+                    timeline,
+                    ExportAspectRatioPreset.Landscape1080p),
+                "C:\\output\\video.mp4"));
+    }
+
     private static TimelineAutomationEvent Automation(string id) =>
         new(
             id,
@@ -327,4 +403,16 @@ public sealed class RenderPlanBuilderTests
             TimelineRange.FromStartAndDuration(
                 TimeSpan.Zero,
                 TimeSpan.FromSeconds(5)));
+
+    private static TimelineClip ClipAt(
+        string id,
+        TimelineTrackKind track,
+        string path,
+        TimeSpan start,
+        TimeSpan duration) =>
+        new(
+            id,
+            track,
+            path,
+            TimelineRange.FromStartAndDuration(start, duration));
 }

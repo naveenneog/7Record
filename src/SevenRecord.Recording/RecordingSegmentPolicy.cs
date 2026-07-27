@@ -17,4 +17,13 @@ public sealed record RecordingSegmentPolicy
     }
 
     public TimeSpan TargetDuration { get; }
+
+    public bool ShouldRollover(
+        TimeSpan segmentStart,
+        TimeSpan currentTime)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(segmentStart, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(currentTime, segmentStart);
+        return currentTime - segmentStart >= TargetDuration;
+    }
 }

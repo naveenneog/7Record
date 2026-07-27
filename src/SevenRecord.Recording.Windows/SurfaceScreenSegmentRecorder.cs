@@ -21,13 +21,15 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
 
     private readonly int _encoderHeight;
     private readonly int _encoderWidth;
-    private readonly Direct3DSurfaceVideoEncoder _encoder;
     private readonly RecordingPauseController _pauseController;
+    private readonly RecordingSegmentPolicy _segmentPolicy;
     private readonly RecordingProjectWriter _projectWriter;
     private readonly ProjectClock _projectClock;
+    private readonly string _projectRoot;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _surfaceGate = new(1, 1);
-    private readonly string _temporaryPath;
+    private Direct3DSurfaceVideoEncoder _encoder;
+    private string _temporaryPath;
     private bool _completed;
     private CanvasDevice? _device;
     private CanvasRenderTarget? _encodeFrame;
@@ -39,6 +41,13 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
     private CanvasRenderTarget? _previewFrame;
     private int _previewInFlight;
     private Task _previewTask = Task.CompletedTask;
+    private Task _publicationTail = Task.CompletedTask;
+    private readonly List<Exception> _rolloverFailures = [];
+    private int _segmentNumber = 1;
+    private TimeSpan _segmentStart;
+    private int _stopping;
+    private bool _currentSegmentHasFrame;
+    private RecordingSegmentEntry? _lastPublishedSegment;
 
     public event Action<Exception>? Failed;
 
@@ -53,6 +62,8 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         RecordingProjectWriter projectWriter,
         ProjectClock projectClock,
         RecordingPauseController pauseController,
+        string projectRoot,
+        RecordingSegmentPolicy segmentPolicy,
         string temporaryPath)
     {
         _encoder = encoder;
@@ -61,6 +72,8 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         _projectWriter = projectWriter;
         _projectClock = projectClock;
         _pauseController = pauseController;
+        _projectRoot = projectRoot;
+        _segmentPolicy = segmentPolicy;
         _temporaryPath = temporaryPath;
     }
 
@@ -71,6 +84,7 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         ProjectClock projectClock,
         RecordingPauseController pauseController,
         RecordingProjectWriter projectWriter,
+        RecordingSegmentPolicy? segmentPolicy = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
@@ -79,10 +93,9 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(projectWriter);
         Directory.CreateDirectory(projectRoot);
 
-        string temporaryPath = Path.Combine(
-            projectRoot,
-            "temp",
-            "screen.partial.mp4");
+        RecordingSegmentPolicy policy =
+            segmentPolicy ?? RecordingSegmentPolicy.Default;
+        string temporaryPath = TemporaryPath(projectRoot, 1);
         int encoderWidth = VideoEncodingDimensions.NormalizeEven(width);
         int encoderHeight = VideoEncodingDimensions.NormalizeEven(height);
         Direct3DSurfaceVideoEncoder encoder =
@@ -100,6 +113,8 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
             projectWriter,
             projectClock,
             pauseController,
+            Path.GetFullPath(projectRoot),
+            policy,
             temporaryPath);
     }
 
@@ -154,6 +169,7 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
         }
 
         _completed = true;
+        Interlocked.Exchange(ref _stopping, 1);
         _shutdown.Cancel();
         Exception? pacingFailure = null;
         try
@@ -175,7 +191,12 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
                 : new AggregateException(pacingFailure, exception);
         }
 
-        await _encoder.CompleteAsync();
+        if (_currentSegmentHasFrame)
+        {
+            await _encoder.CompleteAsync();
+        }
+        await _encoder.DisposeAsync();
+        await _publicationTail;
         if (pacingFailure is not null)
         {
             throw new InvalidOperationException(
@@ -183,15 +204,28 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
                 pacingFailure);
         }
 
-        return await _projectWriter.PublishAsync(
-            _temporaryPath,
-            sourceId: "screen",
-            start: TimeSpan.Zero,
-            duration);
+        if (_currentSegmentHasFrame)
+        {
+            _lastPublishedSegment =
+                await _projectWriter.PublishAsync(
+                    _temporaryPath,
+                    sourceId: "screen",
+                    start: _segmentStart,
+                    duration - _segmentStart);
+        }
+        else if (File.Exists(_temporaryPath))
+        {
+            File.Delete(_temporaryPath);
+        }
+        ThrowRolloverFailures();
+        return _lastPublishedSegment ??
+            throw new InvalidOperationException(
+                "No screen segment received an encodable frame.");
     }
 
     public async ValueTask DisposeAsync()
     {
+        Interlocked.Exchange(ref _stopping, 1);
         _shutdown.Cancel();
         Exception? failure = null;
         try
@@ -223,14 +257,21 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
                 ? exception
                 : new AggregateException(failure, exception);
         }
-        finally
+        try
         {
-            _encodeFrame?.Dispose();
-            _latestFrame?.Dispose();
-            _previewFrame?.Dispose();
-            _surfaceGate.Dispose();
-            _shutdown.Dispose();
+            await _publicationTail;
         }
+        catch (Exception exception)
+        {
+            failure = failure is null
+                ? exception
+                : new AggregateException(failure, exception);
+        }
+        _encodeFrame?.Dispose();
+        _latestFrame?.Dispose();
+        _previewFrame?.Dispose();
+        _surfaceGate.Dispose();
+        _shutdown.Dispose();
 
         if (failure is not null)
         {
@@ -426,10 +467,19 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
                     continue;
                 }
 
+                if (Volatile.Read(ref _stopping) == 0 &&
+                    _segmentPolicy.ShouldRollover(
+                        _segmentStart,
+                        projectTime))
+                {
+                    await RotateSegmentAsync(projectTime);
+                }
+
                 await _encoder.ProcessSurfaceAsync(
                     _encodeFrame!,
                     projectTime,
                     _shutdown.Token);
+                _currentSegmentHasFrame = true;
             }
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
@@ -441,4 +491,95 @@ public sealed class SurfaceScreenSegmentRecorder : IAsyncDisposable
             throw;
         }
     }
+
+    private async Task RotateSegmentAsync(TimeSpan boundary)
+    {
+        if (Volatile.Read(ref _stopping) != 0)
+        {
+            return;
+        }
+
+        Direct3DSurfaceVideoEncoder previousEncoder = _encoder;
+        string previousPath = _temporaryPath;
+        TimeSpan previousStart = _segmentStart;
+        await previousEncoder.CompleteAsync();
+        await previousEncoder.DisposeAsync();
+        QueueSegmentFinalization(
+            previousPath,
+            previousStart,
+            boundary - previousStart);
+        _segmentNumber++;
+        _temporaryPath = TemporaryPath(_projectRoot, _segmentNumber);
+        _encoder = await Direct3DSurfaceVideoEncoder.CreateAsync(
+            _temporaryPath,
+            _encoderWidth,
+            _encoderHeight,
+            FramesPerSecond,
+            Bitrate,
+            CancellationToken.None);
+        _segmentStart = boundary;
+        _currentSegmentHasFrame = false;
+    }
+
+    private void QueueSegmentFinalization(
+        string temporaryPath,
+        TimeSpan start,
+        TimeSpan duration)
+    {
+        Task predecessor = _publicationTail;
+        _publicationTail = Task.Run(async () =>
+        {
+            try
+            {
+                await predecessor;
+            }
+            catch (Exception exception)
+            {
+                lock (_rolloverFailures)
+                {
+                    _rolloverFailures.Add(exception);
+                }
+            }
+
+            try
+            {
+                _lastPublishedSegment =
+                    await _projectWriter.PublishAsync(
+                    temporaryPath,
+                    "screen",
+                    start,
+                    duration,
+                    CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                lock (_rolloverFailures)
+                {
+                    _rolloverFailures.Add(exception);
+                }
+            }
+        });
+    }
+
+    private void ThrowRolloverFailures()
+    {
+        lock (_rolloverFailures)
+        {
+            if (_rolloverFailures.Count > 0)
+            {
+                throw new AggregateException(
+                    "One or more screen segments could not be published.",
+                    _rolloverFailures);
+            }
+        }
+    }
+
+    private static string TemporaryPath(
+        string projectRoot,
+        int segmentNumber) =>
+        Path.Combine(
+            projectRoot,
+            "temp",
+            $"screen-{segmentNumber:D8}.partial.mp4");
+
 }

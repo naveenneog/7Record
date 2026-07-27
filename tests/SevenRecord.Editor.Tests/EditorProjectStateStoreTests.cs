@@ -3,6 +3,9 @@ namespace SevenRecord.Editor.Tests;
 [TestClass]
 public sealed class EditorProjectStateStoreTests
 {
+    private static readonly string[] ExpectedDisabledAutomation =
+        ["zoom-1", "zoom-2"];
+
     [TestMethod]
     public async Task SavesAndRestoresEditorChoices()
     {
@@ -21,7 +24,7 @@ public sealed class EditorProjectStateStoreTests
             Assert.IsNull(loaded.Warning);
             Assert.AreEqual(2, loaded.State.RenderPresetIndex);
             CollectionAssert.AreEquivalent(
-                new[] { "zoom-1", "zoom-2" },
+                ExpectedDisabledAutomation,
                 loaded.State.DisabledAutomationIds.ToArray());
         }
         finally

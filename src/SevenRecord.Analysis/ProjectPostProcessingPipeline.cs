@@ -3,6 +3,7 @@ using System.Text.Json;
 using SevenRecord.Domain.Audio;
 using SevenRecord.Domain.Input;
 using SevenRecord.Domain.Video;
+using SevenRecord.Media;
 using SevenRecord.Recording;
 
 namespace SevenRecord.Analysis;
@@ -37,6 +38,12 @@ public delegate Task<LoadingDetectionWorkerResult> LoadingDetectionRunner(
     string outputJsonPath,
     CancellationToken cancellationToken);
 
+public delegate Task<SegmentConcatenationResult> SegmentConcatenationRunner(
+    string workerPath,
+    IReadOnlyList<string> inputPaths,
+    string outputPath,
+    CancellationToken cancellationToken);
+
 public sealed class ProjectPostProcessingPipeline
 {
     public const string AudioRepairStage = "audio-repair";
@@ -47,12 +54,17 @@ public sealed class ProjectPostProcessingPipeline
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(false);
     private readonly LoadingDetectionRunner _loadingDetectionRunner;
+    private readonly SegmentConcatenationRunner _segmentConcatenationRunner;
 
     public ProjectPostProcessingPipeline(
-        LoadingDetectionRunner? loadingDetectionRunner = null)
+        LoadingDetectionRunner? loadingDetectionRunner = null,
+        SegmentConcatenationRunner? segmentConcatenationRunner = null)
     {
         _loadingDetectionRunner =
             loadingDetectionRunner ?? MediaWorkerLoadingClient.DetectAsync;
+        _segmentConcatenationRunner =
+            segmentConcatenationRunner ??
+            MediaWorkerConcatenationClient.ConcatenateAsync;
     }
 
     public async Task<ProjectPostProcessingResult> RunAsync(
@@ -134,69 +146,120 @@ public sealed class ProjectPostProcessingPipeline
         }
 
         string outputPath = Path.Combine(projectRoot, "loading-speed-plan.json");
-        string workerOutputPath =
-            outputPath + $".worker-{Guid.NewGuid():N}.tmp";
         try
         {
             using RecordingJournal journal = new(journalPath);
             RecordingJournalReplay replay =
                 await journal.ReplayAsync(cancellationToken);
-            RecordingSegmentEntry? screen = replay.Entries
+            RecordingSegmentEntry[] screens = replay.Entries
                 .Where(entry =>
                     string.Equals(
                         entry.SourceId,
                         "screen",
                         StringComparison.OrdinalIgnoreCase))
                 .OrderBy(entry => entry.Sequence)
-                .FirstOrDefault();
-            if (screen is null)
+                .OrderBy(entry => entry.StartTicks)
+                .ThenBy(entry => entry.Sequence)
+                .ToArray();
+            if (screens.Length == 0)
             {
                 return Skipped(LoadingSpeedStage, "No screen source was published.");
             }
 
-            string screenPath = RecordingPathGuard.ResolveWithinRoot(
-                projectRoot,
-                screen.RelativePath);
-            if (!File.Exists(screenPath))
+            List<string> screenPaths = [];
+            foreach (RecordingSegmentEntry screen in screens)
             {
-                throw new FileNotFoundException(
-                    "The screen source referenced by the journal is missing.",
-                    screenPath);
+                cancellationToken.ThrowIfCancellationRequested();
+                string screenPath = RecordingPathGuard.ResolveWithinRoot(
+                    projectRoot,
+                    screen.RelativePath);
+                if (!File.Exists(screenPath))
+                {
+                    throw new FileNotFoundException(
+                        "The screen source referenced by the journal is missing.",
+                        screenPath);
+                }
+                screenPaths.Add(screenPath);
             }
 
-            File.Delete(workerOutputPath);
-            LoadingDetectionWorkerResult workerResult =
-                await _loadingDetectionRunner(
-                    Path.GetFullPath(mediaWorkerPath),
-                    screenPath,
-                    workerOutputPath,
-                    cancellationToken);
-            if (!workerResult.Succeeded)
+            string? concatenatedPath = null;
+            string analysisPath = screenPaths[0];
+            if (screenPaths.Count > 1)
             {
-                return new ProjectPostProcessingStageResult(
-                    LoadingSpeedStage,
-                    ProjectPostProcessingStageState.Failed,
-                    0,
-                    false,
-                    workerResult.Error ?? "Loading detection failed.");
+                concatenatedPath = Path.Combine(
+                    projectRoot,
+                    "temp",
+                    $"loading-analysis-{Guid.NewGuid():N}.mp4");
+                Directory.CreateDirectory(
+                    Path.GetDirectoryName(concatenatedPath)!);
+                SegmentConcatenationResult concatenation =
+                    await _segmentConcatenationRunner(
+                        Path.GetFullPath(mediaWorkerPath),
+                        screenPaths,
+                        concatenatedPath,
+                        cancellationToken);
+                if (!concatenation.Succeeded)
+                {
+                    return Failed(
+                        LoadingSpeedStage,
+                        new InvalidOperationException(
+                            concatenation.Error ??
+                            "Screen segments could not be joined."));
+                }
+                analysisPath = concatenation.OutputPath;
             }
 
-            LoadingSpeedEvent[] events =
-                await ReadRequiredJsonAsync<LoadingSpeedEvent[]>(
-                    workerOutputPath,
-                    cancellationToken);
-            LoadingSpeedEvent[] normalized = events
+            string workerOutputPath =
+                outputPath + $".worker-{Guid.NewGuid():N}.tmp";
+            try
+            {
+                LoadingDetectionWorkerResult workerResult =
+                    await _loadingDetectionRunner(
+                        Path.GetFullPath(mediaWorkerPath),
+                        analysisPath,
+                        workerOutputPath,
+                        cancellationToken);
+                if (!workerResult.Succeeded)
+                {
+                    return new ProjectPostProcessingStageResult(
+                        LoadingSpeedStage,
+                        ProjectPostProcessingStageState.Failed,
+                        0,
+                        false,
+                        workerResult.Error ?? "Loading detection failed.");
+                }
+
+                LoadingSpeedEvent[] events =
+                    await ReadRequiredJsonAsync<LoadingSpeedEvent[]>(
+                        workerOutputPath,
+                        cancellationToken);
+                LoadingSpeedEvent[] normalized = events
                 .Select((item, index) => item with
                 {
                     Id = $"loading-{index:D4}-{item.Start.Ticks:x16}",
                 })
                 .ToArray();
-            bool changed = await WriteJsonIfChangedAsync(
-                outputPath,
-                normalized,
-                cancellationToken);
-            File.Delete(workerOutputPath);
-            return Completed(LoadingSpeedStage, normalized.Length, changed);
+                bool changed = await WriteJsonIfChangedAsync(
+                    outputPath,
+                    normalized,
+                    cancellationToken);
+                return Completed(
+                    LoadingSpeedStage,
+                    normalized.Length,
+                    changed);
+            }
+            finally
+            {
+                if (File.Exists(workerOutputPath))
+                {
+                    File.Delete(workerOutputPath);
+                }
+                if (concatenatedPath is not null &&
+                    File.Exists(concatenatedPath))
+                {
+                    File.Delete(concatenatedPath);
+                }
+            }
         }
         catch (Exception exception) when (IsStageFailure(exception))
         {

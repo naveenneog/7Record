@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Media.Core;
+using Windows.Media.Playback;
 using Windows.Storage;
 using Windows.System;
 using SevenRecord.Analysis;
@@ -85,6 +86,7 @@ public sealed partial class MainPage : Page, IDisposable
     private double _cameraOverlayStartX;
     private double _cameraOverlayStartY;
     private string? _currentPreviewPath;
+    private MediaPlaybackList? _projectPlaybackList;
     private TimelineDocument? _currentTimeline;
     private CaptionEditSession? _captionEditSession;
     private string? _latestPostProcessingProject;
@@ -676,7 +678,9 @@ public sealed partial class MainPage : Page, IDisposable
         _captionEditSession = null;
         _disabledAutomation.Clear();
         _currentPreviewPath = null;
+        _projectPlaybackList = null;
         ProjectPreviewPlayer.Source = null;
+        _projectPlaybackList = null;
         ProjectPreviewStatusText.Text = "No recording is loaded.";
         TimelineItemsList.Items.Clear();
         CaptionSelectorComboBox.Items.Clear();
@@ -768,13 +772,40 @@ public sealed partial class MainPage : Page, IDisposable
 
         if (previewPath is null)
         {
-            TimelineClip? screen = timeline.Clips.FirstOrDefault(
-                clip => clip.Track is TimelineTrackKind.Screen);
-            if (screen is not null)
+            TimelineClip[] screens = timeline.Clips
+                .Where(clip => clip.Track is TimelineTrackKind.Screen)
+                .OrderBy(clip => clip.Range.Start)
+                .ToArray();
+            if (screens.Length > 1)
+            {
+                MediaPlaybackList playbackList = new();
+                foreach (TimelineClip screen in screens)
+                {
+                    string candidate = Path.Combine(
+                        timeline.ProjectPath,
+                        screen.SourcePath);
+                    if (!File.Exists(candidate))
+                    {
+                        ProjectPreviewStatusText.Text =
+                            $"Screen segment is missing: {screen.SourcePath}";
+                        return;
+                    }
+                    playbackList.Items.Add(
+                        new MediaPlaybackItem(
+                            MediaSource.CreateFromUri(new Uri(candidate))));
+                }
+                _projectPlaybackList = playbackList;
+                ProjectPreviewPlayer.Source = playbackList;
+                ProjectPreviewStatusText.Text =
+                    $"Playing {screens.Length} recorded screen segments. " +
+                    "Camera and audio remain separate until export.";
+                return;
+            }
+            if (screens.Length == 1)
             {
                 string candidate = Path.Combine(
                     timeline.ProjectPath,
-                    screen.SourcePath);
+                    screens[0].SourcePath);
                 if (File.Exists(candidate))
                 {
                     previewPath = candidate;
@@ -931,10 +962,13 @@ public sealed partial class MainPage : Page, IDisposable
         {
             return;
         }
+        TimelineDocument timeline = _currentTimeline;
 
-        TimelineClip? microphone = _currentTimeline.Clips.FirstOrDefault(
-            clip => clip.Track is TimelineTrackKind.Microphone);
-        if (microphone is null)
+        TimelineClip[] microphones = timeline.Clips
+            .Where(clip => clip.Track is TimelineTrackKind.Microphone)
+            .OrderBy(clip => clip.Range.Start)
+            .ToArray();
+        if (microphones.Length == 0)
         {
             RenderPlanSummaryText.Text = "Caption generation requires a microphone track.";
             return;
@@ -950,16 +984,36 @@ public sealed partial class MainPage : Page, IDisposable
                 "7Record",
                 "Models",
                 "ggml-tiny.bin");
-            string audioPath = Path.Combine(
-                _currentTimeline.ProjectPath,
-                microphone.SourcePath);
-            CaptionDocument captions = await Task.Run(
-                async () => await LocalWhisperTranscriber.TranscribeAsync(
-                    audioPath,
-                    modelPath,
-                    "auto"));
+            CaptionDocument captions = await Task.Run(async () =>
+            {
+                List<CaptionSegment> segments = [];
+                string language = "auto";
+                foreach (TimelineClip microphone in microphones)
+                {
+                    string audioPath = Path.Combine(
+                        timeline.ProjectPath,
+                        microphone.SourcePath);
+                    CaptionDocument segmentDocument =
+                        await LocalWhisperTranscriber.TranscribeAsync(
+                            audioPath,
+                            modelPath,
+                            "auto");
+                    language = segmentDocument.Language;
+                    segments.AddRange(
+                        segmentDocument.Segments.Select(segment =>
+                            segment with
+                            {
+                                Id = $"{microphone.Id}-{segment.Id}",
+                                Start = segment.Start + microphone.Range.Start,
+                                End = segment.End + microphone.Range.Start,
+                            }));
+                }
+                return CaptionDocumentValidator.ValidateAndNormalize(
+                    new CaptionDocument(1, language, segments),
+                    timeline.Duration);
+            });
             string captionPath = Path.Combine(
-                _currentTimeline.ProjectPath,
+                timeline.ProjectPath,
                 "captions.json");
             string temporaryPath = captionPath + ".tmp";
             string json = JsonSerializer.Serialize(
@@ -968,16 +1022,25 @@ public sealed partial class MainPage : Page, IDisposable
             await File.WriteAllTextAsync(temporaryPath, json);
             File.Move(temporaryPath, captionPath, overwrite: true);
             await File.WriteAllTextAsync(
-                Path.Combine(_currentTimeline.ProjectPath, "captions.srt"),
+                Path.Combine(timeline.ProjectPath, "captions.srt"),
                 CaptionFormatter.ToSrt(captions));
             await File.WriteAllTextAsync(
-                Path.Combine(_currentTimeline.ProjectPath, "captions.vtt"),
+                Path.Combine(timeline.ProjectPath, "captions.vtt"),
                 CaptionFormatter.ToVtt(captions));
 
             TimelineDocument refreshed =
-                await ProjectTimelineLoader.LoadAsync(_currentTimeline.ProjectPath);
+                await ProjectTimelineLoader.LoadAsync(timeline.ProjectPath);
+            if (!string.Equals(
+                    _currentTimeline?.ProjectPath,
+                    timeline.ProjectPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
             _currentTimeline = refreshed;
-            _captionEditSession = new CaptionEditSession(captions);
+            _captionEditSession = new CaptionEditSession(
+                captions,
+                refreshed.Duration);
             PopulateCaptionEditor();
             for (int index = TimelineItemsList.Items.Count - 1; index >= 0; index--)
             {

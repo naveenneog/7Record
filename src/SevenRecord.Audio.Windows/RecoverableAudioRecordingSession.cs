@@ -30,19 +30,27 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
     private readonly SynchronizedAudioCaptureSession _capture;
     private readonly List<AudioGapMetadata> _microphoneGaps = [];
     private readonly object _microphoneGate = new();
-    private readonly string _microphoneTemporaryPath;
-    private readonly WaveFileWriter _microphoneWriter;
+    private string _microphoneTemporaryPath;
+    private WaveFileWriter _microphoneWriter;
     private readonly bool _ownsProjectWriter;
     private readonly string _projectRoot;
     private readonly RecordingProjectWriter _projectWriter;
     private readonly ProjectClock _projectClock;
     private readonly RecordingPauseController _pauseController;
+    private readonly RecordingSegmentPolicy _segmentPolicy;
     private readonly object _systemAudioGate = new();
-    private readonly string _systemAudioTemporaryPath;
-    private readonly WaveFileWriter _systemAudioWriter;
+    private string _systemAudioTemporaryPath;
+    private WaveFileWriter _systemAudioWriter;
     private readonly List<AudioGapMetadata> _systemAudioGaps = [];
+    private Task _publicationTail = Task.CompletedTask;
+    private readonly object _publicationGate = new();
+    private readonly List<Exception> _rolloverFailures = [];
     private bool _completed;
     private bool _stopped;
+    private int _microphoneSegmentNumber = 1;
+    private int _systemAudioSegmentNumber = 1;
+    private TimeSpan _microphoneSegmentStart;
+    private TimeSpan _systemAudioSegmentStart;
     private AudioCaptureHealth? _microphoneHealth;
     private AudioCaptureHealth? _systemAudioHealth;
 
@@ -52,7 +60,8 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         ProjectClock projectClock,
         RecordingPauseController pauseController,
         RecordingProjectWriter projectWriter,
-        bool ownsProjectWriter)
+        bool ownsProjectWriter,
+        RecordingSegmentPolicy segmentPolicy)
     {
         _projectRoot = projectRoot;
         _projectClock = projectClock;
@@ -60,8 +69,15 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         _capture = capture;
         _projectWriter = projectWriter;
         _ownsProjectWriter = ownsProjectWriter;
-        _microphoneTemporaryPath = Path.Combine(projectRoot, "temp", "microphone.partial.wav");
-        _systemAudioTemporaryPath = Path.Combine(projectRoot, "temp", "system-audio.partial.wav");
+        _segmentPolicy = segmentPolicy;
+        _microphoneTemporaryPath = TemporaryPath(
+            projectRoot,
+            "microphone",
+            _microphoneSegmentNumber);
+        _systemAudioTemporaryPath = TemporaryPath(
+            projectRoot,
+            "system-audio",
+            _systemAudioSegmentNumber);
         Directory.CreateDirectory(Path.Combine(projectRoot, "temp"));
         _microphoneWriter = new WaveFileWriter(
             _microphoneTemporaryPath,
@@ -86,7 +102,8 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
     public static RecoverableAudioRecordingSession Start(
         string projectRoot,
         ProjectClock projectClock,
-        RecordingPauseController pauseController)
+        RecordingPauseController pauseController,
+        RecordingSegmentPolicy? segmentPolicy = null)
     {
         RecordingProjectWriter projectWriter =
             RecordingProjectWriter.OpenAsync(projectRoot)
@@ -99,7 +116,8 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
                 projectClock,
                 pauseController,
                 projectWriter,
-                ownsProjectWriter: true);
+                ownsProjectWriter: true,
+                segmentPolicy ?? RecordingSegmentPolicy.Default);
         }
         catch
         {
@@ -112,19 +130,22 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         string projectRoot,
         ProjectClock projectClock,
         RecordingPauseController pauseController,
-        RecordingProjectWriter projectWriter) =>
+        RecordingProjectWriter projectWriter,
+        RecordingSegmentPolicy? segmentPolicy = null) =>
         Start(
             projectRoot,
             projectClock,
             pauseController,
             projectWriter,
-            ownsProjectWriter: false);
+            ownsProjectWriter: false,
+            segmentPolicy ?? RecordingSegmentPolicy.Default);
 
     public static AudioRecordingStartResult TryStart(
         string projectRoot,
         ProjectClock projectClock,
         RecordingPauseController pauseController,
-        RecordingProjectWriter projectWriter)
+        RecordingProjectWriter projectWriter,
+        RecordingSegmentPolicy? segmentPolicy = null)
     {
         try
         {
@@ -133,7 +154,8 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
                     projectRoot,
                     projectClock,
                     pauseController,
-                    projectWriter),
+                    projectWriter,
+                    segmentPolicy),
                 null);
         }
         catch (Exception exception) when (
@@ -151,7 +173,8 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         ProjectClock projectClock,
         RecordingPauseController pauseController,
         RecordingProjectWriter projectWriter,
-        bool ownsProjectWriter)
+        bool ownsProjectWriter,
+        RecordingSegmentPolicy segmentPolicy)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
         ArgumentNullException.ThrowIfNull(projectClock);
@@ -169,7 +192,8 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
                 projectClock,
                 pauseController,
                 projectWriter,
-                ownsProjectWriter);
+                ownsProjectWriter,
+                segmentPolicy);
             capture.Start();
             return session;
         }
@@ -250,18 +274,20 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         }
 
         _completed = true;
+        await _publicationTail;
         RecordingSegmentEntry microphone = await _projectWriter.PublishAsync(
             _microphoneTemporaryPath,
             sourceId: "microphone",
-            start: TimeSpan.Zero,
-            duration,
+            start: _microphoneSegmentStart,
+            duration - _microphoneSegmentStart,
             cancellationToken);
         RecordingSegmentEntry systemAudio = await _projectWriter.PublishAsync(
             _systemAudioTemporaryPath,
             sourceId: "system-audio",
-            start: TimeSpan.Zero,
-            duration,
+            start: _systemAudioSegmentStart,
+            duration - _systemAudioSegmentStart,
             cancellationToken);
+        ThrowRolloverFailures();
         AudioTimingManifest timing = CreateTimingManifest();
         string timingManifestPath = Path.Combine(_projectRoot, "audio-timing.json");
         string temporaryManifestPath = timingManifestPath + ".tmp";
@@ -297,6 +323,7 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         }
 
         await _capture.DisposeAsync();
+        await _publicationTail;
         if (_ownsProjectWriter)
         {
             _projectWriter.Dispose();
@@ -310,10 +337,18 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
             return;
         }
 
+        TimeSpan activeTime = _pauseController.Map(packet.ProjectTime);
         if (packet.Source is AudioCaptureSource.Microphone)
         {
             lock (_microphoneGate)
             {
+                if (!Volatile.Read(ref _stopped) &&
+                    _segmentPolicy.ShouldRollover(
+                        _microphoneSegmentStart,
+                        activeTime))
+                {
+                    RotateMicrophone(activeTime);
+                }
                 AddGap(_microphoneGaps, packet);
                 _microphoneWriter.Write(packet.Data, 0, packet.Data.Length);
             }
@@ -322,6 +357,13 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
         {
             lock (_systemAudioGate)
             {
+                if (!Volatile.Read(ref _stopped) &&
+                    _segmentPolicy.ShouldRollover(
+                        _systemAudioSegmentStart,
+                        activeTime))
+                {
+                    RotateSystemAudio(activeTime);
+                }
                 AddGap(_systemAudioGaps, packet);
                 _systemAudioWriter.Write(packet.Data, 0, packet.Data.Length);
             }
@@ -371,7 +413,7 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
                 drift.PartsPerMillion));
     }
 
-    private static void AddGap(
+    private void AddGap(
         List<AudioGapMetadata> gaps,
         AudioCapturePacket packet)
     {
@@ -379,7 +421,121 @@ public sealed class RecoverableAudioRecordingSession : IAsyncDisposable
             packet.GapStart is TimeSpan gapStart &&
             packet.MissingDuration > TimeSpan.Zero)
         {
-            gaps.Add(new AudioGapMetadata(gapStart, packet.MissingDuration));
+            gaps.Add(
+                new AudioGapMetadata(
+                    _pauseController.Map(gapStart),
+                    packet.MissingDuration));
         }
     }
+
+    private void RotateMicrophone(TimeSpan boundary)
+    {
+        if (Volatile.Read(ref _stopped))
+        {
+            return;
+        }
+        _microphoneWriter.Dispose();
+        QueueSegmentPublication(
+            _microphoneTemporaryPath,
+            "microphone",
+            _microphoneSegmentStart,
+            boundary - _microphoneSegmentStart);
+        _microphoneSegmentStart = boundary;
+        _microphoneSegmentNumber++;
+        _microphoneTemporaryPath = TemporaryPath(
+            _projectRoot,
+            "microphone",
+            _microphoneSegmentNumber);
+        _microphoneWriter = new WaveFileWriter(
+            _microphoneTemporaryPath,
+            _capture.MicrophoneFormat);
+    }
+
+    private void RotateSystemAudio(TimeSpan boundary)
+    {
+        if (Volatile.Read(ref _stopped))
+        {
+            return;
+        }
+        _systemAudioWriter.Dispose();
+        QueueSegmentPublication(
+            _systemAudioTemporaryPath,
+            "system-audio",
+            _systemAudioSegmentStart,
+            boundary - _systemAudioSegmentStart);
+        _systemAudioSegmentStart = boundary;
+        _systemAudioSegmentNumber++;
+        _systemAudioTemporaryPath = TemporaryPath(
+            _projectRoot,
+            "system-audio",
+            _systemAudioSegmentNumber);
+        _systemAudioWriter = new WaveFileWriter(
+            _systemAudioTemporaryPath,
+            _capture.SystemAudioFormat);
+    }
+
+    private void QueueSegmentPublication(
+        string temporaryPath,
+        string sourceId,
+        TimeSpan start,
+        TimeSpan duration)
+    {
+        lock (_publicationGate)
+        {
+            Task predecessor = _publicationTail;
+            _publicationTail = Task.Run(async () =>
+            {
+                try
+                {
+                    await predecessor;
+                }
+                catch (Exception exception)
+                {
+                    lock (_rolloverFailures)
+                    {
+                        _rolloverFailures.Add(exception);
+                    }
+                }
+
+                try
+                {
+                    await _projectWriter.PublishAsync(
+                        temporaryPath,
+                        sourceId,
+                        start,
+                        duration,
+                        CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    lock (_rolloverFailures)
+                    {
+                        _rolloverFailures.Add(exception);
+                    }
+                }
+            });
+        }
+    }
+
+    private void ThrowRolloverFailures()
+    {
+        lock (_rolloverFailures)
+        {
+            if (_rolloverFailures.Count > 0)
+            {
+                throw new AggregateException(
+                    "One or more audio segments could not be published.",
+                    _rolloverFailures);
+            }
+        }
+    }
+
+    private static string TemporaryPath(
+        string projectRoot,
+        string sourceId,
+        int segmentNumber) =>
+        Path.Combine(
+            projectRoot,
+            "temp",
+            $"{sourceId}-{segmentNumber:D8}.partial.wav");
 }

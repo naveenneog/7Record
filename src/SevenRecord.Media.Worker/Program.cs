@@ -90,12 +90,24 @@ if (string.Equals(args[0], "detect-loading", StringComparison.OrdinalIgnoreCase)
         Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
         return 0;
     }
+
     catch (Exception exception)
     {
         LoadingDetectionWorkerResult result = new(false, 0, exception.Message);
         Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
         return 1;
     }
+}
+
+if (string.Equals(args[0], "concat-media", StringComparison.OrdinalIgnoreCase) &&
+    args.Length >= 4)
+{
+    SegmentConcatenationResult result =
+        await FfmpegSegmentConcatenator.ConcatenateAsync(
+            args.Skip(2).ToArray(),
+            args[1]);
+    Console.WriteLine(JsonSerializer.Serialize(result, serializerOptions));
+    return result.Succeeded ? 0 : 1;
 }
 
 PrintUsage();
@@ -111,4 +123,6 @@ static void PrintUsage()
         "  SevenRecord.Media.Worker export-plan <render-plan.json> <output.mp4>");
     Console.Error.WriteLine(
         "  SevenRecord.Media.Worker detect-loading <screen-media> <output-json>");
+    Console.Error.WriteLine(
+        "  SevenRecord.Media.Worker concat-media <output-media> <input-media>...");
 }

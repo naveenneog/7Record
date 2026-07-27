@@ -36,19 +36,21 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
 
     private readonly MediaCapture _capture;
     private readonly CanvasDevice _device;
-    private readonly Direct3DSurfaceVideoEncoder _encoder;
     private readonly MediaFrameReader _reader;
     private readonly string _layoutPath;
     private readonly object _layoutGate = new();
     private PresenterLayoutSettings _layout;
-    private readonly bool _ownsProjectWriter;
+    private bool _ownsProjectWriter;
     private readonly RecordingPauseController _pauseController;
+    private readonly RecordingSegmentPolicy _segmentPolicy;
     private readonly SemaphoreSlim _processingGate = new(1, 1);
     private readonly ProjectClock _projectClock;
     private readonly RecordingProjectWriter _projectWriter;
+    private readonly string _projectRoot;
     private readonly CanvasRenderTarget _renderTarget;
     private readonly CancellationTokenSource _shutdown = new();
-    private readonly string _temporaryPath;
+    private Direct3DSurfaceVideoEncoder _encoder;
+    private string _temporaryPath;
     private Exception? _failure;
     private readonly TaskCompletionSource _firstFrame =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -61,6 +63,13 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
     private int _previewInFlight;
     private CanvasRenderTarget? _previewTarget;
     private Task _previewTask = Task.CompletedTask;
+    private Task _publicationTail = Task.CompletedTask;
+    private readonly List<Exception> _rolloverFailures = [];
+    private int _segmentNumber = 1;
+    private TimeSpan _segmentStart;
+    private int _stopping;
+    private bool _currentSegmentHasFrame;
+    private RecordingSegmentEntry? _lastPublishedSegment;
     private bool _stopped;
 
     private RecoverableCameraRecordingSession(
@@ -78,6 +87,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         RecordingProjectWriter projectWriter,
         bool ownsProjectWriter,
         PresenterLayoutSettings layout,
+        RecordingSegmentPolicy segmentPolicy,
         string temporaryPath)
     {
         DeviceName = deviceName;
@@ -92,6 +102,8 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         _encoder = encoder;
         _projectWriter = projectWriter;
         _ownsProjectWriter = ownsProjectWriter;
+        _projectRoot = projectRoot;
+        _segmentPolicy = segmentPolicy;
         _layout = layout.ConstrainToFrame();
         _temporaryPath = temporaryPath;
         _layoutPath = Path.Combine(projectRoot, "presenter-layout.json");
@@ -124,6 +136,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         ProjectClock projectClock,
         RecordingPauseController pauseController,
         PresenterLayoutSettings? layout = null,
+        RecordingSegmentPolicy? segmentPolicy = null,
         CancellationToken cancellationToken = default)
     {
         RecordingProjectWriter projectWriter =
@@ -139,6 +152,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 projectWriter,
                 ownsProjectWriter: true,
                 layout: layout,
+                segmentPolicy: segmentPolicy,
                 cancellationToken: cancellationToken);
         }
         catch
@@ -154,6 +168,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         RecordingPauseController pauseController,
         RecordingProjectWriter projectWriter,
         PresenterLayoutSettings? layout = null,
+        RecordingSegmentPolicy? segmentPolicy = null,
         CancellationToken cancellationToken = default) =>
         CreateAsync(
             projectRoot,
@@ -162,6 +177,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
             projectWriter,
             ownsProjectWriter: false,
             layout: layout,
+            segmentPolicy: segmentPolicy,
             cancellationToken: cancellationToken);
 
     private static async Task<RecoverableCameraRecordingSession> CreateAsync(
@@ -171,6 +187,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         RecordingProjectWriter projectWriter,
         bool ownsProjectWriter,
         PresenterLayoutSettings? layout,
+        RecordingSegmentPolicy? segmentPolicy,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
@@ -181,12 +198,61 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
 
         IReadOnlyList<MediaFrameSourceGroup> groups =
             await MediaFrameSourceGroup.FindAllAsync();
-        MediaFrameSourceGroup group = groups
-            .FirstOrDefault(candidate =>
+        MediaFrameSourceGroup[] colorGroups = groups
+            .Where(candidate =>
                 candidate.SourceInfos.Any(info =>
                     info.SourceKind is MediaFrameSourceKind.Color))
-            ?? throw new InvalidOperationException("No color camera source is available.");
+            .ToArray();
+        if (colorGroups.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "No color camera source is available.");
+        }
 
+        List<Exception> failures = [];
+        foreach (MediaFrameSourceGroup group in colorGroups)
+        {
+            try
+            {
+                return await CreateFromGroupAsync(
+                    projectRoot,
+                    projectClock,
+                    pauseController,
+                    projectWriter,
+                    ownsProjectWriter,
+                    layout,
+                    segmentPolicy,
+                    group,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+        }
+
+        throw new AggregateException(
+            "No camera delivered a processable frame.",
+            failures);
+    }
+
+    private static async Task<RecoverableCameraRecordingSession>
+        CreateFromGroupAsync(
+            string projectRoot,
+            ProjectClock projectClock,
+            RecordingPauseController pauseController,
+            RecordingProjectWriter projectWriter,
+            bool ownsProjectWriter,
+            PresenterLayoutSettings? layout,
+            RecordingSegmentPolicy? segmentPolicy,
+            MediaFrameSourceGroup group,
+            CancellationToken cancellationToken)
+    {
         MediaCapture capture = new();
         try
         {
@@ -215,10 +281,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 source,
                 MediaEncodingSubtypes.Bgra8);
             reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
-            string temporaryPath = Path.Combine(
-                projectRoot,
-                "temp",
-                "camera.partial.mp4");
+            string temporaryPath = TemporaryPath(projectRoot, 1);
             int encoderWidth = VideoEncodingDimensions.NormalizeEven(width);
             int encoderHeight = VideoEncodingDimensions.NormalizeEven(height);
             Direct3DSurfaceVideoEncoder encoder =
@@ -250,8 +313,9 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 renderTarget,
                 encoder,
                 projectWriter,
-                ownsProjectWriter,
+                ownsProjectWriter: false,
                 layout ?? PresenterLayoutSettings.DefaultOverlay,
+                segmentPolicy ?? RecordingSegmentPolicy.Default,
                 temporaryPath);
 
             MediaFrameReaderStartStatus status = await reader.StartAsync();
@@ -288,6 +352,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                     $"Camera '{group.DisplayName}' did not deliver a processable frame within five seconds.");
             }
 
+            session._ownsProjectWriter = ownsProjectWriter;
             return session;
         }
         catch
@@ -334,6 +399,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         }
 
         _stopped = true;
+        Interlocked.Exchange(ref _stopping, 1);
         _reader.FrameArrived -= OnFrameArrived;
         await _reader.StopAsync();
         _shutdown.Cancel();
@@ -349,7 +415,10 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 _failure);
         }
 
-        await _encoder.CompleteAsync();
+        if (_currentSegmentHasFrame)
+        {
+            await _encoder.CompleteAsync();
+        }
         _duration = duration;
     }
 
@@ -367,12 +436,26 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         }
 
         _completed = true;
-        RecordingSegmentEntry segment = await _projectWriter.PublishAsync(
-            _temporaryPath,
-            sourceId: "camera",
-            start: TimeSpan.Zero,
-            _duration,
-            cancellationToken);
+        await _encoder.DisposeAsync();
+        await _publicationTail;
+        if (_currentSegmentHasFrame)
+        {
+            _lastPublishedSegment =
+                await _projectWriter.PublishAsync(
+                    _temporaryPath,
+                    sourceId: "camera",
+                    start: _segmentStart,
+                    _duration - _segmentStart,
+                    cancellationToken);
+        }
+        else if (File.Exists(_temporaryPath))
+        {
+            File.Delete(_temporaryPath);
+        }
+        ThrowRolloverFailures();
+        RecordingSegmentEntry segment = _lastPublishedSegment ??
+            throw new InvalidOperationException(
+                "No camera segment received an encodable frame.");
 
         PresenterLayoutSettings layout = Layout;
         string temporaryLayoutPath = _layoutPath + ".tmp";
@@ -402,6 +485,7 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         }
 
         _disposed = true;
+        Interlocked.Exchange(ref _stopping, 1);
         Exception? failure = null;
         _reader.FrameArrived -= OnFrameArrived;
         if (!_stopped)
@@ -437,6 +521,14 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
         try
         {
             await _encoder.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            failure = Combine(failure, exception);
+        }
+        try
+        {
+            await _publicationTail;
         }
         catch (Exception exception)
         {
@@ -573,10 +665,18 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 destinationFrame,
                 sourceBounds,
                 destinationBounds);
+            if (Volatile.Read(ref _stopping) == 0 &&
+                _segmentPolicy.ShouldRollover(
+                    _segmentStart,
+                    projectTime))
+            {
+                await RotateSegmentAsync(projectTime);
+            }
             await _encoder.ProcessSurfaceAsync(
                 _renderTarget,
                 projectTime,
                 _shutdown.Token);
+            _currentSegmentHasFrame = true;
             QueuePreviewFrame(projectTime);
             Interlocked.Increment(ref _frames);
         }
@@ -593,6 +693,97 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
             _processingGate.Release();
         }
     }
+
+    private async Task RotateSegmentAsync(TimeSpan boundary)
+    {
+        if (Volatile.Read(ref _stopping) != 0)
+        {
+            return;
+        }
+
+        Direct3DSurfaceVideoEncoder previousEncoder = _encoder;
+        string previousPath = _temporaryPath;
+        TimeSpan previousStart = _segmentStart;
+        await previousEncoder.CompleteAsync();
+        await previousEncoder.DisposeAsync();
+        QueueSegmentFinalization(
+            previousPath,
+            previousStart,
+            boundary - previousStart);
+        _segmentNumber++;
+        _temporaryPath = TemporaryPath(_projectRoot, _segmentNumber);
+        _encoder = await Direct3DSurfaceVideoEncoder.CreateAsync(
+            _temporaryPath,
+            VideoEncodingDimensions.NormalizeEven(Width),
+            VideoEncodingDimensions.NormalizeEven(Height),
+            framesPerSecond: 30,
+            bitrate: 4_000_000,
+            CancellationToken.None);
+        _segmentStart = boundary;
+        _currentSegmentHasFrame = false;
+    }
+
+    private void QueueSegmentFinalization(
+        string temporaryPath,
+        TimeSpan start,
+        TimeSpan duration)
+    {
+        Task predecessor = _publicationTail;
+        _publicationTail = Task.Run(async () =>
+        {
+            try
+            {
+                await predecessor;
+            }
+            catch (Exception exception)
+            {
+                lock (_rolloverFailures)
+                {
+                    _rolloverFailures.Add(exception);
+                }
+            }
+
+            try
+            {
+                _lastPublishedSegment =
+                    await _projectWriter.PublishAsync(
+                    temporaryPath,
+                    "camera",
+                    start,
+                    duration,
+                    CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                lock (_rolloverFailures)
+                {
+                    _rolloverFailures.Add(exception);
+                }
+            }
+        });
+    }
+
+    private void ThrowRolloverFailures()
+    {
+        lock (_rolloverFailures)
+        {
+            if (_rolloverFailures.Count > 0)
+            {
+                throw new AggregateException(
+                    "One or more camera segments could not be published.",
+                    _rolloverFailures);
+            }
+        }
+    }
+
+    private static string TemporaryPath(
+        string projectRoot,
+        int segmentNumber) =>
+        Path.Combine(
+            projectRoot,
+            "temp",
+            $"camera-{segmentNumber:D8}.partial.mp4");
+
 
     private void QueuePreviewFrame(TimeSpan projectTime)
     {

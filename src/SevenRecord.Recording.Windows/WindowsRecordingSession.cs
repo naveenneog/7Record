@@ -187,7 +187,7 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
                 projectClock,
                 pauseController,
                 projectWriter,
-                cancellationToken);
+                cancellationToken: cancellationToken);
 
             AudioRecordingStartResult audioStart =
                 RecoverableAudioRecordingSession.TryStart(

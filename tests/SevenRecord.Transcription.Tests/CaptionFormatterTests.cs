@@ -5,6 +5,9 @@ namespace SevenRecord.Transcription.Tests;
 [TestClass]
 public sealed class CaptionFormatterTests
 {
+    private static readonly string[] ExpectedSortedCaptions =
+        ["Hello 7Record", "Later"];
+
     private static readonly CaptionDocument Document = new(
         1,
         "en",
@@ -53,8 +56,12 @@ public sealed class CaptionFormatterTests
 
         string srt = CaptionFormatter.ToSrt(unsorted);
 
-        Assert.IsTrue(
-            srt.IndexOf("Hello 7Record", StringComparison.Ordinal) <
-            srt.IndexOf("Later", StringComparison.Ordinal));
+        string[] captions = srt
+            .Split(Environment.NewLine)
+            .Where(line => line is "Hello 7Record" or "Later")
+            .ToArray();
+        CollectionAssert.AreEqual(
+            ExpectedSortedCaptions,
+            captions);
     }
 }

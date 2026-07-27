@@ -2,6 +2,7 @@ using System.Text.Json;
 using SevenRecord.Domain.Audio;
 using SevenRecord.Domain.Input;
 using SevenRecord.Domain.Video;
+using SevenRecord.Media;
 using SevenRecord.Recording;
 
 namespace SevenRecord.Analysis.Tests;
@@ -9,6 +10,9 @@ namespace SevenRecord.Analysis.Tests;
 [TestClass]
 public sealed class ProjectPostProcessingPipelineTests
 {
+    private static readonly JsonSerializerOptions SerializerOptions =
+        new(JsonSerializerDefaults.Web);
+
     [TestMethod]
     public async Task RerunKeepsGeneratedPlansByteForByteStable()
     {
@@ -93,6 +97,53 @@ public sealed class ProjectPostProcessingPipelineTests
         }
     }
 
+    [TestMethod]
+    public async Task LoadingDetectionUsesConcatenatedScreenSegments()
+    {
+        string project = CreateTemporaryProject();
+        try
+        {
+            string workerPath = Path.Combine(project, "worker.exe");
+            await File.WriteAllBytesAsync(workerPath, [0]);
+            await File.WriteAllBytesAsync(
+                Path.Combine(project, "screen-1.mp4"),
+                [0]);
+            await File.WriteAllBytesAsync(
+                Path.Combine(project, "screen-2.mp4"),
+                [0]);
+            using (RecordingJournal journal = new(
+                       Path.Combine(project, "recording.journal")))
+            {
+                await journal.AppendAsync(
+                    ScreenEntry(1, "screen-1.mp4", TimeSpan.Zero));
+                await journal.AppendAsync(
+                    ScreenEntry(
+                        2,
+                        "screen-2.mp4",
+                        TimeSpan.FromSeconds(5)));
+            }
+
+            ProjectPostProcessingPipeline pipeline = new(
+                FakeLoadingDetectionAsync,
+                FakeConcatenationAsync);
+            ProjectPostProcessingResult result =
+                await pipeline.RunAsync(project, workerPath);
+            LoadingSpeedEvent[] events = JsonSerializer.Deserialize<
+                LoadingSpeedEvent[]>(
+                await File.ReadAllTextAsync(
+                    Path.Combine(project, "loading-speed-plan.json")),
+                SerializerOptions) ?? [];
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.HasCount(1, events);
+            Assert.AreEqual(TimeSpan.FromSeconds(2), events[0].Start);
+        }
+        finally
+        {
+            Directory.Delete(project, recursive: true);
+        }
+    }
+
     private static async Task CreateProjectInputsAsync(string project)
     {
         CursorMetadataDocument cursor = new(
@@ -150,6 +201,20 @@ public sealed class ProjectPostProcessingPipelineTests
             JsonSerializer.Serialize(timing));
     }
 
+    private static RecordingSegmentEntry ScreenEntry(
+        int sequence,
+        string path,
+        TimeSpan start) =>
+        new(
+            sequence,
+            $"screen-{sequence}",
+            "screen",
+            path,
+            start.Ticks,
+            TimeSpan.FromSeconds(5).Ticks,
+            1,
+            new string('A', 64));
+
     private static async Task<LoadingDetectionWorkerResult>
         FakeLoadingDetectionAsync(
             string workerPath,
@@ -171,6 +236,20 @@ public sealed class ProjectPostProcessingPipelineTests
             JsonSerializer.Serialize(events),
             cancellationToken);
         return new LoadingDetectionWorkerResult(true, events.Length, null);
+    }
+
+    private static async Task<SegmentConcatenationResult>
+        FakeConcatenationAsync(
+            string workerPath,
+            IReadOnlyList<string> inputPaths,
+            string outputPath,
+            CancellationToken cancellationToken)
+    {
+        await File.WriteAllBytesAsync(
+            outputPath,
+            [0],
+            cancellationToken);
+        return new SegmentConcatenationResult(true, outputPath, null);
     }
 
     private static async Task<Dictionary<string, string>> ReadPlansAsync(

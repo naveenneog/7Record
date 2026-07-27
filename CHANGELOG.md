@@ -24,6 +24,13 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Moved microphone and system-audio packet processing off NAudio callback threads onto independent bounded consumers.
 - Added explicit audio queue-overflow telemetry and live/final quality warnings.
 - Preserved partial audio publication when a source writer fails instead of abandoning all previously captured audio.
+- Wired the five-second recording policy into screen, microphone, system-audio, and camera recorders.
+- Published completed rollover segments through the shared journal while capture continues.
+- Prevented empty tail segments when Stop races an encoder rollover.
+- Added camera-source fallback across all available color source groups.
+- Made playback, captions, loading analysis, and export consume every ordered source segment.
+- Consolidated long segment lists inside the isolated media worker via FFmpeg concat manifests, avoiding Windows command-line limits.
+- Restored loading detection across segment boundaries by analyzing one consolidated screen source.
 
 ### Validation
 
@@ -34,6 +41,10 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Editor tests: 7 passed; transcription tests: 3 passed.
 - UIA playback/navigation/adaptive gate passed at the active 150% DPI scale.
 - Audio and recording tests pass with the queued capture path; the 8-second Remote Audio probe improved from 2,225.8 ms missing to 335.5 ms with zero queue overflows.
+- Forced-kill audio recovery preserved ten journaled five-second segments and left only the two active partial files.
+- Real multi-segment export produced a 10.0-second H.264/AAC file.
+- Cross-boundary loading fixture detected a two-second freeze spanning two five-second source segments.
+- Full build completed with zero warnings/errors; automated and UIA suites passed.
 
 ### Added
 
