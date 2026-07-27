@@ -8,6 +8,87 @@ public enum PresenterLayoutMode
     FullPresenter,
 }
 
+public sealed record CameraFramingSettings(
+    double Zoom,
+    double CenterX,
+    double CenterY)
+{
+    public static CameraFramingSettings Default { get; } =
+        new(1, 0.5, 0.5);
+
+    public CameraFramingSettings Constrain() =>
+        this with
+        {
+            Zoom = Math.Clamp(
+                double.IsFinite(Zoom) ? Zoom : 1,
+                1,
+                4),
+            CenterX = Math.Clamp(
+                double.IsFinite(CenterX) ? CenterX : 0.5,
+                0,
+                1),
+            CenterY = Math.Clamp(
+                double.IsFinite(CenterY) ? CenterY : 0.5,
+                0,
+                1),
+        };
+}
+
+public sealed record CameraEffectSettings(double Exposure)
+{
+    public static CameraEffectSettings Default { get; } = new(0);
+
+    public CameraEffectSettings Constrain() =>
+        this with
+        {
+            Exposure = Math.Clamp(
+                double.IsFinite(Exposure) ? Exposure : 0,
+                -1,
+                1),
+        };
+}
+
+public readonly record struct NormalizedCameraCrop(
+    double X,
+    double Y,
+    double Width,
+    double Height);
+
+public static class CameraCropGeometry
+{
+    public static NormalizedCameraCrop Calculate(
+        int sourceWidth,
+        int sourceHeight,
+        double viewportAspectRatio,
+        CameraFramingSettings framing)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sourceWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sourceHeight);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(
+            viewportAspectRatio,
+            0);
+        CameraFramingSettings constrained = framing.Constrain();
+        double sourceAspect = sourceWidth / (double)sourceHeight;
+        double baseWidth = sourceAspect > viewportAspectRatio
+            ? viewportAspectRatio / sourceAspect
+            : 1;
+        double baseHeight = sourceAspect > viewportAspectRatio
+            ? 1
+            : sourceAspect / viewportAspectRatio;
+        double width = baseWidth / constrained.Zoom;
+        double height = baseHeight / constrained.Zoom;
+        double x = Math.Clamp(
+            constrained.CenterX - width / 2,
+            0,
+            1 - width);
+        double y = Math.Clamp(
+            constrained.CenterY - height / 2,
+            0,
+            1 - height);
+        return new NormalizedCameraCrop(x, y, width, height);
+    }
+}
+
 public sealed record PresenterLayoutSettings(
     PresenterLayoutMode Mode,
     double X,
@@ -16,6 +97,12 @@ public sealed record PresenterLayoutSettings(
     double Height,
     double CornerRadius)
 {
+    public CameraEffectSettings Effects { get; init; } =
+        CameraEffectSettings.Default;
+
+    public CameraFramingSettings Framing { get; init; } =
+        CameraFramingSettings.Default;
+
     public static PresenterLayoutSettings DefaultOverlay { get; } =
         new(
             PresenterLayoutMode.RoundedOverlay,
@@ -50,6 +137,8 @@ public sealed record PresenterLayoutSettings(
             Width = width,
             Height = height,
             CornerRadius = cornerRadius,
+            Effects = (Effects ?? CameraEffectSettings.Default).Constrain(),
+            Framing = (Framing ?? CameraFramingSettings.Default).Constrain(),
         };
     }
 

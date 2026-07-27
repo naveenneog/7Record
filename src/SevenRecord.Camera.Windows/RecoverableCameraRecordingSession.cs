@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Effects;
 using SevenRecord.Capture.Abstractions;
 using SevenRecord.Domain.Video;
 using SevenRecord.Media;
@@ -800,11 +801,17 @@ public sealed class RecoverableCameraRecordingSession : IAsyncDisposable
                 PreviewMaximumWidth,
                 PreviewMaximumHeight);
             EnsurePreviewTarget(width, height);
+            PresenterLayoutSettings layout = Layout;
+            using ExposureEffect exposure = new()
+            {
+                Source = _renderTarget,
+                Exposure = (float)layout.Effects.Exposure,
+            };
             using CanvasDrawingSession drawing =
                 _previewTarget!.CreateDrawingSession();
             drawing.Clear(global::Windows.UI.Color.FromArgb(255, 0, 0, 0));
             drawing.DrawImage(
-                _renderTarget,
+                exposure,
                 new Rect(0, 0, width, height),
                 new Rect(0, 0, Width, Height));
             _previewTask = PublishPreviewFrameAsync(

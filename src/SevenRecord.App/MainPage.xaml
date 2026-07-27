@@ -244,7 +244,7 @@
                                                 <Image
                                                     x:Name="CameraPreviewImage"
                                                     AutomationProperties.Name="Camera video preview"
-                                                    Stretch="Uniform" />
+                                                    Stretch="UniformToFill" />
                                                 <Grid
                                                     x:Name="CameraPreviewPlaceholder"
                                                     Background="{StaticResource StudioRaisedBrush}">
@@ -434,7 +434,7 @@
                                                 Margin="0,6,0,0"
                                                 HorizontalAlignment="Left"
                                                 Click="OnConfigureCameraClicked"
-                                                Content="Test camera" />
+                                                Content="Open camera studio" />
                                         </StackPanel>
                                         <ToggleSwitch
                                             x:Name="CameraOverlayToggle"
@@ -454,6 +454,67 @@
                                             </ToggleSwitch.Resources>
                                         </ToggleSwitch>
                                     </Grid>
+
+                                    <StackPanel
+                                        x:Name="CameraStudioPanel"
+                                        Padding="0,4,0,0"
+                                        Spacing="8"
+                                        Visibility="Collapsed">
+                                        <TextBlock
+                                            x:Name="CameraStudioStatusText"
+                                            AutomationProperties.LiveSetting="Polite"
+                                            Style="{StaticResource MetaTextStyle}"
+                                            Text="Camera studio is closed."
+                                            TextWrapping="Wrap" />
+                                        <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Camera zoom" />
+                                        <Slider
+                                            x:Name="CameraZoomSlider"
+                                            AutomationProperties.Name="Camera zoom"
+                                            Minimum="1"
+                                            Maximum="4"
+                                            StepFrequency="0.1"
+                                            ValueChanged="OnCameraStudioValueChanged" />
+                                        <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Horizontal framing" />
+                                        <Slider
+                                            x:Name="CameraCenterXSlider"
+                                            AutomationProperties.Name="Camera horizontal framing"
+                                            Minimum="0"
+                                            Maximum="1"
+                                            StepFrequency="0.01"
+                                            ValueChanged="OnCameraStudioValueChanged" />
+                                        <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Vertical framing" />
+                                        <Slider
+                                            x:Name="CameraCenterYSlider"
+                                            AutomationProperties.Name="Camera vertical framing"
+                                            Minimum="0"
+                                            Maximum="1"
+                                            StepFrequency="0.01"
+                                            ValueChanged="OnCameraStudioValueChanged" />
+                                        <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Overlay size" />
+                                        <Slider
+                                            x:Name="CameraSizeSlider"
+                                            AutomationProperties.Name="Camera overlay size"
+                                            Minimum="0.15"
+                                            Maximum="0.5"
+                                            StepFrequency="0.01"
+                                            ValueChanged="OnCameraStudioValueChanged" />
+                                        <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Brightness enhancement" />
+                                        <Slider
+                                            x:Name="CameraExposureSlider"
+                                            AutomationProperties.Name="Camera brightness enhancement"
+                                            Minimum="-1"
+                                            Maximum="1"
+                                            StepFrequency="0.05"
+                                            ValueChanged="OnCameraStudioValueChanged" />
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button
+                                                Click="OnResetCameraStudioClicked"
+                                                Content="Reset camera" />
+                                            <Button
+                                                Click="OnCloseCameraStudioClicked"
+                                                Content="Close studio" />
+                                        </StackPanel>
+                                    </StackPanel>
 
                                     <Border Height="1" Background="{StaticResource StudioDividerBrush}" />
 

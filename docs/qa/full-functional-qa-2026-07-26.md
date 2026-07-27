@@ -279,3 +279,4 @@ The Windows picker must also be retested on a local console and installed MSIX. 
 - **QA-20260726-17:** packaged and unpackaged worker locations resolve through one runtime locator.
 - Real multi-segment H.264/AAC export and cross-boundary loading detection passed.
 - Redirected cameras were unavailable during rollover acceptance testing; camera rollover compiled, passed code review, and must be rerun when the remote camera resumes frame delivery.
+- Pre-record camera studio implementation passed 102 automated tests and UIA with zero warnings/errors. Final redirected-camera preview validation remains environment-blocked because both enumerated remote cameras stopped delivering frames.

@@ -37,4 +37,35 @@ public sealed class PresenterLayoutSettingsTests
         Assert.AreEqual(0.3d, constrained.Height);
         Assert.AreEqual(0.5d, constrained.CornerRadius);
     }
+
+    [TestMethod]
+    public void CameraCropCentersAndZoomsForOverlayAspect()
+    {
+        NormalizedCameraCrop crop = CameraCropGeometry.Calculate(
+            1920,
+            1080,
+            viewportAspectRatio: 1,
+            new CameraFramingSettings(2, 0.5, 0.5));
+
+        Assert.AreEqual(0.28125, crop.Width, 0.0001);
+        Assert.AreEqual(0.5, crop.Height, 0.0001);
+        Assert.AreEqual(0.359375, crop.X, 0.0001);
+        Assert.AreEqual(0.25, crop.Y, 0.0001);
+    }
+
+    [TestMethod]
+    public void CameraFramingAndEffectsAreConstrained()
+    {
+        PresenterLayoutSettings layout =
+            (PresenterLayoutSettings.DefaultOverlay with
+            {
+                Framing = new CameraFramingSettings(9, -1, 2),
+                Effects = new CameraEffectSettings(4),
+            }).ConstrainToFrame();
+
+        Assert.AreEqual(4d, layout.Framing.Zoom);
+        Assert.AreEqual(0d, layout.Framing.CenterX);
+        Assert.AreEqual(1d, layout.Framing.CenterY);
+        Assert.AreEqual(1d, layout.Effects.Exposure);
+    }
 }

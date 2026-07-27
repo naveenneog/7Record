@@ -45,10 +45,16 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Real multi-segment export produced a 10.0-second H.264/AAC file.
 - Cross-boundary loading fixture detected a two-second freeze spanning two five-second source segments.
 - Full build completed with zero warnings/errors; automated and UIA suites passed.
+- Camera studio release suite: 102 tests passed, zero warnings/errors, UIA passed.
+- Redirected camera sources were enumerated but delivered no frames during final camera-studio hardware validation; device acceptance must be rerun outside the current Remote Desktop state.
 
 ### Added
 
 - Successful recording finalization now navigates directly to Projects and opens the completed recording for review.
+- Added a persistent pre-record camera studio with idle preview lifecycle, zoom, horizontal/vertical framing, overlay sizing, brightness enhancement, reset, and settings persistence.
+- Added a reusable camera crop geometry model and effects-ready presenter metadata that remains reversible.
+- Applied the same camera framing and exposure controls to live recording preview and final FFmpeg export.
+- Added accessible camera-position/framing status and native slider controls.
 
 ## 2026-07-26
 

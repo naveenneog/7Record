@@ -66,6 +66,10 @@ public sealed class RenderPlanBuilderTests
                         ["width"] = 0.3,
                         ["height"] = 0.4,
                         ["cornerRadius"] = 0.5,
+                        ["cameraZoom"] = 1.5,
+                        ["cameraCenterX"] = 0.3,
+                        ["cameraCenterY"] = 0.7,
+                        ["cameraExposure"] = 0.2,
                     },
                 }
             ]);
@@ -84,6 +88,11 @@ public sealed class RenderPlanBuilderTests
         StringAssert.Contains(joined, "scale=576:432");
         StringAssert.Contains(joined, "overlay=384:324");
         StringAssert.Contains(joined, "geq=");
+        StringAssert.Contains(joined, "crop=w=");
+        StringAssert.Contains(joined, "iw*0.300000");
+        StringAssert.Contains(joined, "ih*0.700000");
+        StringAssert.Contains(joined, "eq=contrast=1.148699");
+        StringAssert.Contains(joined, "brightness=-0.074349");
     }
 
     [TestMethod]

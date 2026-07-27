@@ -116,6 +116,10 @@ public static class ProjectTimelineLoader
                             ["width"] = layout.Width,
                             ["height"] = layout.Height,
                             ["cornerRadius"] = layout.CornerRadius,
+                            ["cameraZoom"] = layout.Framing.Zoom,
+                            ["cameraCenterX"] = layout.Framing.CenterX,
+                            ["cameraCenterY"] = layout.Framing.CenterY,
+                            ["cameraExposure"] = layout.Effects.Exposure,
                         },
                     });
             }

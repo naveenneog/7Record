@@ -127,6 +127,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Project opening is integrity-gated and transactional, editor choices persist across reopen, captions reject overlap/out-of-range edits, and successful Stop opens the completed recording directly in Projects.
 - WASAPI callbacks now only timestamp and enqueue owned packets; background consumers perform WAV writes and telemetry. Remote Audio loss improved substantially but remains device-side risk and is now surfaced live and in finalization warnings.
 - Production capture now rolls screen, microphone, system audio, and camera into five-second journaled segments. Playback, captions, loading analysis, and export consume all segments through isolated concat-manifest consolidation.
+- The Recorder now has a persistent pre-record camera studio: idle preview, zoom/crop framing, overlay size/placement, brightness enhancement, reset, accessibility status, local settings persistence, and matching export metadata.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

@@ -185,8 +185,44 @@ public static class FfmpegRenderPlanExporter
                     PresenterLayoutSettings.DefaultOverlay.CornerRadius),
                 0,
                 0.5);
+            double cameraZoom = Math.Clamp(
+                AutomationValue(
+                    presenterLayout,
+                    "cameraZoom",
+                    CameraFramingSettings.Default.Zoom),
+                1,
+                4);
+            double cameraCenterX = Math.Clamp(
+                AutomationValue(
+                    presenterLayout,
+                    "cameraCenterX",
+                    CameraFramingSettings.Default.CenterX),
+                0,
+                1);
+            double cameraCenterY = Math.Clamp(
+                AutomationValue(
+                    presenterLayout,
+                    "cameraCenterY",
+                    CameraFramingSettings.Default.CenterY),
+                0,
+                1);
+            double cameraExposure = Math.Clamp(
+                AutomationValue(
+                    presenterLayout,
+                    "cameraExposure",
+                    CameraEffectSettings.Default.Exposure),
+                -1,
+                1);
+            double targetAspect = cameraWidth / (double)cameraHeight;
             string cameraFilter =
-                $"[{cameraSource}]scale={cameraWidth}:{cameraHeight}:" +
+                $"[{cameraSource}]crop=" +
+                $"w='if(gt(iw/ih,{Seconds(targetAspect)}),ih*{Seconds(targetAspect)},iw)/{Seconds(cameraZoom)}':" +
+                $"h='if(gt(iw/ih,{Seconds(targetAspect)}),ih,iw/{Seconds(targetAspect)})/{Seconds(cameraZoom)}':" +
+                $"x='max(0,min(iw-ow,iw*{Seconds(cameraCenterX)}-ow/2))':" +
+                $"y='max(0,min(ih-oh,ih*{Seconds(cameraCenterY)}-oh/2))'," +
+                $"eq=contrast={Seconds(Math.Pow(2, cameraExposure))}:" +
+                $"brightness={Seconds((1 - Math.Pow(2, cameraExposure)) / 2)}," +
+                $"scale={cameraWidth}:{cameraHeight}:" +
                 "force_original_aspect_ratio=increase," +
                 $"crop={cameraWidth}:{cameraHeight},format=rgba";
             if (cornerRadius >= 0.49)

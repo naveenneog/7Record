@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using SevenRecord.Camera.Windows;
 using SevenRecord.Capture.Abstractions;
+using SevenRecord.Domain.Video;
 using SevenRecord.Media.Windows;
 using Windows.Media.Capture.Frames;
 
@@ -24,6 +25,53 @@ if (args.Length > 0 && string.Equals(args[0], "list", StringComparison.OrdinalIg
             })
         }),
         serializerOptions));
+    return;
+}
+
+if (args.Length > 0 &&
+    string.Equals(args[0], "preview", StringComparison.OrdinalIgnoreCase))
+{
+    try
+    {
+        PresenterLayoutSettings layout =
+            PresenterLayoutSettings.DefaultOverlay with
+            {
+                Framing = new CameraFramingSettings(1.5, 0.4, 0.6),
+                Effects = new CameraEffectSettings(0.2),
+            };
+        int frames = 0;
+        await using CameraPreviewSession preview =
+            await CameraPreviewSession.CreateAsync(layout);
+        preview.FrameReady += frame =>
+        {
+            Interlocked.Increment(ref frames);
+            frame.Dispose();
+        };
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        Console.WriteLine(JsonSerializer.Serialize(
+            new
+            {
+                succeeded = frames > 0,
+                preview.DeviceName,
+                preview.Width,
+                preview.Height,
+                frames,
+                outputFiles = 0,
+            },
+            serializerOptions));
+    }
+    catch (Exception exception)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(
+            new
+            {
+                succeeded = false,
+                errorType = exception.GetType().Name,
+                exception.Message,
+            },
+            serializerOptions));
+        Environment.ExitCode = 1;
+    }
     return;
 }
 

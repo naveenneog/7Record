@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Storage;
@@ -62,10 +63,14 @@ public sealed partial class MainPage : Page, IDisposable
     private AudioCaptureHealth? _systemAudioHealth;
     private PresenterLayoutSettings _cameraLayout =
         PresenterLayoutSettings.DefaultOverlay;
+    private CameraPreviewSession? _cameraPreviewSession;
+    private CancellationTokenSource? _cameraPreviewStartupCancellation;
+    private CancellationTokenSource? _cameraSettingsSaveCancellation;
     private bool _cameraOverlayDragging;
     private bool _cameraEnabled = true;
     private bool _disposed;
     private bool _loadingProject;
+    private bool _updatingCameraStudioControls;
     private bool _updatingCameraToggle;
     private GlobalHotKeyService? _globalHotKeys;
     private WindowsRecordingSession? _recordingSession;
@@ -77,6 +82,8 @@ public sealed partial class MainPage : Page, IDisposable
     private SoftwareBitmapSource? _cameraPreviewSource;
     private int _screenPreviewPixelHeight;
     private int _screenPreviewPixelWidth;
+    private int _cameraPreviewPixelHeight;
+    private int _cameraPreviewPixelWidth;
     private SoftwareBitmapPreviewFrame? _pendingScreenPreview;
     private SoftwareBitmapPreviewFrame? _pendingCameraPreview;
     private int _screenPreviewDispatchPending;
@@ -352,36 +359,67 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async void OnConfigureCameraClicked(object sender, RoutedEventArgs e)
     {
-        ConfigureCameraButton.IsEnabled = false;
-        CameraStatusText.Text = "Testing camera frames...";
-        string probeRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "7Record",
-            "CameraProbe",
-            Guid.NewGuid().ToString("N"));
+        if (_cameraPreviewSession is not null)
+        {
+            await StopCameraStudioAsync();
+            return;
+        }
+        await StartCameraStudioAsync();
+    }
 
+    private async Task StartCameraStudioAsync()
+    {
+        if (_cameraPreviewSession is not null ||
+            !_cameraEnabled ||
+            _recorderState.Snapshot.IsActive)
+        {
+            return;
+        }
+
+        ConfigureCameraButton.IsEnabled = false;
+        CameraStudioPanel.Visibility = Visibility.Visible;
+        CameraStudioStatusText.Text = "Starting camera preview...";
+        _cameraPreviewStartupCancellation?.Cancel();
+        _cameraPreviewStartupCancellation?.Dispose();
+        CancellationTokenSource startupCancellation = new();
+        _cameraPreviewStartupCancellation = startupCancellation;
         try
         {
-            ProjectClock clock = ProjectClock.StartNew();
-            await using RecoverableCameraRecordingSession camera =
-                await RecoverableCameraRecordingSession.CreateAsync(
-                    probeRoot,
-                    clock,
-                    new RecordingPauseController());
+            CameraPreviewSession session =
+                await CameraPreviewSession.CreateAsync(
+                    _cameraLayout,
+                    startupCancellation.Token);
+            if (startupCancellation.IsCancellationRequested ||
+                !_cameraEnabled ||
+                _recorderState.Snapshot.IsActive ||
+                CameraStudioPanel.Visibility is not Visibility.Visible)
+            {
+                await session.DisposeAsync();
+                return;
+            }
+            session.FrameReady += OnCameraPreviewFrameReady;
+            session.Failed += OnCameraStudioFailed;
+            _cameraPreviewSession = session;
             CameraStatusText.Text =
-                $"{camera.DeviceName} ({camera.Width} x {camera.Height}) is ready.";
+                $"{session.DeviceName} ({session.Width} x {session.Height}) is ready.";
+            CameraStudioStatusText.Text =
+                "Drag the camera bubble to place it. Adjust framing and brightness before recording.";
+            ConfigureCameraButton.Content = "Close camera studio";
+            ShowLivePreviewShell();
+        }
+        catch (OperationCanceledException)
+            when (startupCancellation.IsCancellationRequested)
+        {
         }
         catch (Exception exception)
         {
-            CameraStatusText.Text = $"Camera unavailable: {exception.Message}";
+            CameraStudioStatusText.Text =
+                $"Camera preview could not start: {exception.Message}";
+            CameraStatusText.Text =
+                "Camera preview is unavailable. Recording can continue without it.";
         }
         finally
         {
-            if (Directory.Exists(probeRoot))
-            {
-                Directory.Delete(probeRoot, recursive: true);
-            }
-
             ConfigureCameraButton.IsEnabled =
                 _recordingSession is null &&
                 (_recorderState.Snapshot.State is
@@ -390,9 +428,174 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
+    private async Task StopCameraStudioAsync(bool resetPreview = true)
+    {
+        CameraPreviewSession? session = _cameraPreviewSession;
+        _cameraPreviewSession = null;
+        _cameraPreviewStartupCancellation?.Cancel();
+        _cameraPreviewStartupCancellation?.Dispose();
+        _cameraPreviewStartupCancellation = null;
+        if (session is not null)
+        {
+            session.FrameReady -= OnCameraPreviewFrameReady;
+            session.Failed -= OnCameraStudioFailed;
+            await session.DisposeAsync();
+        }
+        CameraStudioPanel.Visibility = Visibility.Collapsed;
+        CameraStudioStatusText.Text = "Camera studio is closed.";
+        ConfigureCameraButton.Content = "Open camera studio";
+        if (resetPreview && _recordingSession is null)
+        {
+            ResetLivePreview();
+        }
+    }
+
+    private void OnCameraStudioFailed(Exception exception) =>
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            CameraStudioStatusText.Text =
+                $"Camera preview stopped: {exception.Message}";
+        });
+
+    private void OnCameraStudioValueChanged(
+        object sender,
+        RangeBaseValueChangedEventArgs e)
+    {
+        if (_updatingCameraStudioControls ||
+            CameraZoomSlider is null ||
+            CameraCenterXSlider is null ||
+            CameraCenterYSlider is null ||
+            CameraSizeSlider is null ||
+            CameraExposureSlider is null)
+        {
+            return;
+        }
+
+        _cameraLayout = (_cameraLayout with
+        {
+            Width = CameraSizeSlider.Value,
+            Height = CameraSizeSlider.Value,
+            Framing = new CameraFramingSettings(
+                CameraZoomSlider.Value,
+                CameraCenterXSlider.Value,
+                CameraCenterYSlider.Value),
+            Effects = new CameraEffectSettings(
+                CameraExposureSlider.Value),
+        }).ConstrainToFrame();
+        _cameraPreviewSession?.UpdateLayout(_cameraLayout);
+        _recordingSession?.UpdateCameraLayout(_cameraLayout);
+        ApplyCameraOverlayLayout();
+        ApplyCameraFramingTransform();
+        UpdateCameraStudioStatus();
+        ScheduleCameraStudioSave();
+    }
+
+    private void OnResetCameraStudioClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        _cameraLayout = PresenterLayoutSettings.DefaultOverlay;
+        UpdateCameraStudioControls();
+        _cameraPreviewSession?.UpdateLayout(_cameraLayout);
+        _recordingSession?.UpdateCameraLayout(_cameraLayout);
+        ApplyCameraOverlayLayout();
+        ApplyCameraFramingTransform();
+        UpdateCameraStudioStatus();
+        ScheduleCameraStudioSave();
+    }
+
+    private async void OnCloseCameraStudioClicked(
+        object sender,
+        RoutedEventArgs e) =>
+        await StopCameraStudioAsync();
+
+    private void UpdateCameraStudioControls()
+    {
+        _updatingCameraStudioControls = true;
+        try
+        {
+            CameraZoomSlider.Value = _cameraLayout.Framing.Zoom;
+            CameraCenterXSlider.Value = _cameraLayout.Framing.CenterX;
+            CameraCenterYSlider.Value = _cameraLayout.Framing.CenterY;
+            CameraSizeSlider.Value = _cameraLayout.Width;
+            CameraExposureSlider.Value = _cameraLayout.Effects.Exposure;
+        }
+        finally
+        {
+            _updatingCameraStudioControls = false;
+        }
+        UpdateCameraStudioStatus();
+    }
+
+    private void UpdateCameraStudioStatus()
+    {
+        string status =
+            $"Overlay {_cameraLayout.X:P0} left, {_cameraLayout.Y:P0} top, " +
+            $"size {_cameraLayout.Width:P0}; zoom {_cameraLayout.Framing.Zoom:F1}x; " +
+            $"brightness {_cameraLayout.Effects.Exposure:+0.00;-0.00;0.00}.";
+        CameraStudioStatusText.Text = status;
+        AutomationProperties.SetItemStatus(
+            CameraPreviewBubble,
+            status);
+    }
+
+    private void ApplyCameraFramingTransform()
+    {
+        double zoom = _cameraLayout.Framing.Zoom;
+        CameraPreviewImage.RenderTransformOrigin =
+            new Windows.Foundation.Point(
+                _cameraLayout.Framing.CenterX,
+                _cameraLayout.Framing.CenterY);
+        CameraPreviewImage.RenderTransform = new CompositeTransform
+        {
+            ScaleX = zoom,
+            ScaleY = zoom,
+        };
+    }
+
+    private void ScheduleCameraStudioSave()
+    {
+        _cameraSettingsSaveCancellation?.Cancel();
+        _cameraSettingsSaveCancellation?.Dispose();
+        CancellationTokenSource cancellation = new();
+        _cameraSettingsSaveCancellation = cancellation;
+        _ = SaveCameraStudioAfterDelayAsync(cancellation);
+    }
+
+    private async Task SaveCameraStudioAfterDelayAsync(
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(300),
+                cancellation.Token);
+            await CameraStudioSettingsStore.SaveAsync(
+                _cameraLayout,
+                cancellationToken: cancellation.Token);
+        }
+        catch (OperationCanceledException)
+            when (cancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"Camera studio settings could not be saved: {exception}");
+        }
+    }
+
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         ApplyAdaptiveLayout(ActualWidth);
+        CameraStudioSettingsLoadResult cameraSettings =
+            await CameraStudioSettingsStore.LoadAsync();
+        _cameraLayout = cameraSettings.Layout;
+        UpdateCameraStudioControls();
+        if (!string.IsNullOrWhiteSpace(cameraSettings.Warning))
+        {
+            CameraStatusText.Text = cameraSettings.Warning;
+        }
         await TrySelectPrimaryDisplayAsync();
         await RefreshReadinessAsync();
         await RefreshProjectsAsync();
@@ -457,7 +660,7 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private void OnCameraOverlayToggled(object sender, RoutedEventArgs e)
+    private async void OnCameraOverlayToggled(object sender, RoutedEventArgs e)
     {
         if (_updatingCameraToggle)
         {
@@ -468,6 +671,10 @@ public sealed partial class MainPage : Page, IDisposable
         CameraStatusText.Text = _cameraEnabled
             ? "The default camera will start automatically with recording."
             : "Camera overlay is off.";
+        if (!_cameraEnabled)
+        {
+            await StopCameraStudioAsync();
+        }
     }
 
     private async void OnRefreshReadinessClicked(object sender, RoutedEventArgs e)
@@ -1284,6 +1491,20 @@ public sealed partial class MainPage : Page, IDisposable
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _postProcessingCancellation.Cancel();
+        _cameraSettingsSaveCancellation?.Cancel();
+        try
+        {
+            await CameraStudioSettingsStore.SaveAsync(_cameraLayout);
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"Camera studio settings could not be saved: {exception}");
+        }
+        finally
+        {
+            await StopCameraStudioAsync();
+        }
         _recordingUiTimer.Stop();
         ProjectPreviewPlayer.Source = null;
         DisposeGlobalHotKeys();
@@ -1299,6 +1520,8 @@ public sealed partial class MainPage : Page, IDisposable
 
         _disposed = true;
         _postProcessingCancellation.Cancel();
+        _cameraSettingsSaveCancellation?.Cancel();
+        _cameraSettingsSaveCancellation?.Dispose();
         _recordingUiTimer.Stop();
         _recordingUiTimer.Tick -= OnRecordingUiTimerTick;
         _recorderState.StateChanged -= OnRecorderStateChanged;
@@ -1346,6 +1569,7 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
 
+        await StopCameraStudioAsync(resetPreview: false);
         StartRecordingButton.IsEnabled = false;
         ReadinessInfoBar.Title = "Preparing encoder";
         ReadinessInfoBar.Message = "Validating the isolated media worker.";
@@ -2016,7 +2240,9 @@ public sealed partial class MainPage : Page, IDisposable
             Interlocked.Exchange(ref _pendingScreenPreview, null);
         try
         {
-            if (_recordingSession is not null && frame is not null)
+            if ((_recordingSession is not null ||
+                 _cameraPreviewSession is not null) &&
+                frame is not null)
             {
                 _screenPreviewPixelWidth = frame.Bitmap.PixelWidth;
                 _screenPreviewPixelHeight = frame.Bitmap.PixelHeight;
@@ -2030,6 +2256,7 @@ public sealed partial class MainPage : Page, IDisposable
                     ScreenPreviewImage,
                     "Live screen preview, video active");
                 ApplyCameraOverlayLayout();
+                ApplyCameraFramingTransform();
             }
         }
         catch (Exception exception)
@@ -2053,8 +2280,12 @@ public sealed partial class MainPage : Page, IDisposable
             Interlocked.Exchange(ref _pendingCameraPreview, null);
         try
         {
-            if (_recordingSession is not null && frame is not null)
+            if ((_recordingSession is not null ||
+                 _cameraPreviewSession is not null) &&
+                frame is not null)
             {
+                _cameraPreviewPixelWidth = frame.Bitmap.PixelWidth;
+                _cameraPreviewPixelHeight = frame.Bitmap.PixelHeight;
                 _cameraPreviewSource = await UpdatePreviewSourceAsync(
                     _cameraPreviewSource,
                     CameraPreviewImage,
@@ -2063,6 +2294,7 @@ public sealed partial class MainPage : Page, IDisposable
                 AutomationProperties.SetName(
                     CameraPreviewBubble,
                     "Live camera overlay, video active");
+                ApplyCameraFramingTransform();
                 CameraPreviewBubble.Visibility = _cameraEnabled
                     ? Visibility.Visible
                     : Visibility.Collapsed;
@@ -2127,6 +2359,8 @@ public sealed partial class MainPage : Page, IDisposable
         _cameraPreviewSource = null;
         _screenPreviewPixelWidth = 0;
         _screenPreviewPixelHeight = 0;
+        _cameraPreviewPixelWidth = 0;
+        _cameraPreviewPixelHeight = 0;
         LivePreviewSurface.Visibility = Visibility.Collapsed;
         IdlePreviewContent.Visibility = Visibility.Visible;
         CameraPreviewBubble.Visibility = Visibility.Collapsed;
@@ -2161,8 +2395,11 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void OnCameraOverlayCanvasSizeChanged(
         object sender,
-        SizeChangedEventArgs e) =>
+        SizeChangedEventArgs e)
+    {
         ApplyCameraOverlayLayout();
+        ApplyCameraFramingTransform();
+    }
 
     private void ApplyCameraOverlayLayout()
     {
@@ -2225,7 +2462,8 @@ public sealed partial class MainPage : Page, IDisposable
         object sender,
         PointerRoutedEventArgs e)
     {
-        if (_recordingSession is null)
+        if (_recordingSession is null &&
+            _cameraPreviewSession is null)
         {
             return;
         }
@@ -2286,6 +2524,7 @@ public sealed partial class MainPage : Page, IDisposable
 
         _cameraOverlayDragging = false;
         CameraOverlayCanvas.ReleasePointerCapture(e.Pointer);
+        UpdateCameraStudioStatus();
         e.Handled = true;
     }
 
@@ -2310,6 +2549,7 @@ public sealed partial class MainPage : Page, IDisposable
         MoveCameraOverlay(
             _cameraLayout.X + deltaX,
             _cameraLayout.Y + deltaY);
+        UpdateCameraStudioStatus();
         e.Handled = true;
     }
 
@@ -2318,7 +2558,9 @@ public sealed partial class MainPage : Page, IDisposable
         _cameraLayout = (_cameraLayout with { X = x, Y = y })
             .ConstrainToFrame();
         _recordingSession?.UpdateCameraLayout(_cameraLayout);
+        _cameraPreviewSession?.UpdateLayout(_cameraLayout);
         ApplyCameraOverlayLayout();
+        ScheduleCameraStudioSave();
     }
 
     private static string IssueMessage(
