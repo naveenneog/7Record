@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Windowing;
 using System.Runtime.InteropServices;
 using Windows.UI;
 
@@ -6,6 +7,9 @@ namespace SevenRecord.App;
 
 public sealed partial class MainWindow : Window
 {
+    private bool _closeApproved;
+    private bool _closeInProgress;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -15,8 +19,37 @@ public sealed partial class MainWindow : Window
 
         AppWindow.SetIcon("Assets/AppIcon.ico");
         ApplyTitleBarColors();
+        AppWindow.Closing += OnAppWindowClosing;
 
         RootFrame.Navigate(typeof(MainPage));
+    }
+
+    private async void OnAppWindowClosing(
+        AppWindow sender,
+        AppWindowClosingEventArgs args)
+    {
+        if (_closeApproved)
+        {
+            return;
+        }
+        args.Cancel = true;
+        if (_closeInProgress)
+        {
+            return;
+        }
+
+        _closeInProgress = true;
+        bool safeToClose = RootFrame.Content is not MainPage page ||
+            await page.ShutdownAsync();
+        if (!safeToClose)
+        {
+            _closeInProgress = false;
+            Activate();
+            return;
+        }
+
+        _closeApproved = true;
+        Close();
     }
 
     private void ApplyTitleBarColors()

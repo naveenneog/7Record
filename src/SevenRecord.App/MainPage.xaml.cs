@@ -71,6 +71,8 @@ public sealed partial class MainPage : Page, IDisposable
     private bool _disposed;
     private bool _loadingProject;
     private bool _updatingCameraStudioControls;
+    private readonly SemaphoreSlim _cameraEffectTransitionGate =
+        new(1, 1);
     private bool _updatingCameraToggle;
     private GlobalHotKeyService? _globalHotKeys;
     private WindowsRecordingSession? _recordingSession;
@@ -98,6 +100,7 @@ public sealed partial class MainPage : Page, IDisposable
     private CaptionEditSession? _captionEditSession;
     private string? _latestPostProcessingProject;
     private Task? _stopCaptureTask;
+    private Task<bool>? _shutdownTask;
     private readonly HashSet<string> _disabledAutomation =
         new(StringComparer.Ordinal);
 
@@ -367,13 +370,26 @@ public sealed partial class MainPage : Page, IDisposable
         await StartCameraStudioAsync();
     }
 
-    private async Task StartCameraStudioAsync()
+    private async Task<bool> StartCameraStudioAsync()
+    {
+        await _cameraEffectTransitionGate.WaitAsync();
+        try
+        {
+            return await StartCameraStudioCoreAsync();
+        }
+        finally
+        {
+            _cameraEffectTransitionGate.Release();
+        }
+    }
+
+    private async Task<bool> StartCameraStudioCoreAsync()
     {
         if (_cameraPreviewSession is not null ||
             !_cameraEnabled ||
             _recorderState.Snapshot.IsActive)
         {
-            return;
+            return _cameraPreviewSession is not null;
         }
 
         ConfigureCameraButton.IsEnabled = false;
@@ -395,21 +411,35 @@ public sealed partial class MainPage : Page, IDisposable
                 CameraStudioPanel.Visibility is not Visibility.Visible)
             {
                 await session.DisposeAsync();
-                return;
+                return false;
             }
             session.FrameReady += OnCameraPreviewFrameReady;
             session.Failed += OnCameraStudioFailed;
             _cameraPreviewSession = session;
+            _cameraLayout = _cameraLayout with
+            {
+                Effects = _cameraLayout.Effects with
+                {
+                    BackgroundBlur =
+                        session.BackgroundEffects.ActiveMode,
+                },
+            };
+            ConfigureBackgroundEffectControls(
+                session.BackgroundEffects);
+            session.UpdateLayout(_cameraLayout);
             CameraStatusText.Text =
                 $"{session.DeviceName} ({session.Width} x {session.Height}) is ready.";
             CameraStudioStatusText.Text =
-                "Drag the camera bubble to place it. Adjust framing and brightness before recording.";
+                session.BackgroundEffects.Message ??
+                "Drag the camera bubble to place it. Adjust framing and effects before recording.";
             ConfigureCameraButton.Content = "Close camera studio";
             ShowLivePreviewShell();
+            return true;
         }
         catch (OperationCanceledException)
             when (startupCancellation.IsCancellationRequested)
         {
+            return false;
         }
         catch (Exception exception)
         {
@@ -417,6 +447,13 @@ public sealed partial class MainPage : Page, IDisposable
                 $"Camera preview could not start: {exception.Message}";
             CameraStatusText.Text =
                 "Camera preview is unavailable. Recording can continue without it.";
+            ConfigureBackgroundEffectControls(
+                new BackgroundEffectSupport(
+                    false,
+                    false,
+                    BackgroundBlurMode.Off,
+                    "Windows Studio Effects are unavailable."));
+            return false;
         }
         finally
         {
@@ -428,10 +465,25 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private async Task StopCameraStudioAsync(bool resetPreview = true)
+    private async Task<bool> StopCameraStudioAsync(bool resetPreview = true)
+    {
+        await _cameraEffectTransitionGate.WaitAsync();
+        try
+        {
+            return await StopCameraStudioCoreAsync(resetPreview);
+        }
+        finally
+        {
+            _cameraEffectTransitionGate.Release();
+        }
+    }
+
+    private async Task<bool> StopCameraStudioCoreAsync(
+        bool resetPreview = true)
     {
         CameraPreviewSession? session = _cameraPreviewSession;
         _cameraPreviewSession = null;
+        string? closeWarning = null;
         _cameraPreviewStartupCancellation?.Cancel();
         _cameraPreviewStartupCancellation?.Dispose();
         _cameraPreviewStartupCancellation = null;
@@ -439,15 +491,36 @@ public sealed partial class MainPage : Page, IDisposable
         {
             session.FrameReady -= OnCameraPreviewFrameReady;
             session.Failed -= OnCameraStudioFailed;
-            await session.DisposeAsync();
+            try
+            {
+                await session.DisposeAsync();
+            }
+            catch (Exception exception)
+            {
+                closeWarning =
+                    $"Camera closed with a settings warning: {exception.Message}";
+                if (exception is CameraBackgroundEffectRestoreException)
+                {
+                    _cameraPreviewSession = session;
+                }
+            }
         }
         CameraStudioPanel.Visibility = Visibility.Collapsed;
-        CameraStudioStatusText.Text = "Camera studio is closed.";
+        CameraStudioStatusText.Text =
+            closeWarning ?? "Camera studio is closed.";
         ConfigureCameraButton.Content = "Open camera studio";
+        if (closeWarning is not null)
+        {
+            CameraStatusText.Text = closeWarning;
+            ReadinessInfoBar.Title = "Camera settings need attention";
+            ReadinessInfoBar.Message = closeWarning;
+            ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+        }
         if (resetPreview && _recordingSession is null)
         {
             ResetLivePreview();
         }
+        return closeWarning is null;
     }
 
     private void OnCameraStudioFailed(Exception exception) =>
@@ -471,6 +544,7 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
 
+        PresenterLayoutSettings previousLayout = _cameraLayout;
         _cameraLayout = (_cameraLayout with
         {
             Width = CameraSizeSlider.Value,
@@ -480,7 +554,11 @@ public sealed partial class MainPage : Page, IDisposable
                 CameraCenterXSlider.Value,
                 CameraCenterYSlider.Value),
             Effects = new CameraEffectSettings(
-                CameraExposureSlider.Value),
+                CameraExposureSlider.Value)
+            {
+                BackgroundBlur =
+                    _cameraLayout.Effects.BackgroundBlur,
+            },
         }).ConstrainToFrame();
         _cameraPreviewSession?.UpdateLayout(_cameraLayout);
         _recordingSession?.UpdateCameraLayout(_cameraLayout);
@@ -490,24 +568,107 @@ public sealed partial class MainPage : Page, IDisposable
         ScheduleCameraStudioSave();
     }
 
-    private void OnResetCameraStudioClicked(
+    private async void OnResetCameraStudioClicked(
         object sender,
         RoutedEventArgs e)
     {
-        _cameraLayout = PresenterLayoutSettings.DefaultOverlay;
-        UpdateCameraStudioControls();
-        _cameraPreviewSession?.UpdateLayout(_cameraLayout);
-        _recordingSession?.UpdateCameraLayout(_cameraLayout);
-        ApplyCameraOverlayLayout();
-        ApplyCameraFramingTransform();
-        UpdateCameraStudioStatus();
-        ScheduleCameraStudioSave();
+        await _cameraEffectTransitionGate.WaitAsync();
+        try
+        {
+            CameraBackgroundBlurComboBox.IsEnabled = false;
+            PresenterLayoutSettings previousLayout = _cameraLayout;
+            _cameraLayout = PresenterLayoutSettings.DefaultOverlay;
+            if (_cameraPreviewSession is not null)
+            {
+                if (!await StopCameraStudioCoreAsync(resetPreview: false))
+                {
+                    _cameraLayout = previousLayout;
+                    UpdateCameraStudioControls();
+                    return;
+                }
+                if (!await StartCameraStudioCoreAsync())
+                {
+                    _cameraLayout = previousLayout;
+                    UpdateCameraStudioControls();
+                    return;
+                }
+            }
+            UpdateCameraStudioControls();
+            _cameraPreviewSession?.UpdateLayout(_cameraLayout);
+            _recordingSession?.UpdateCameraLayout(_cameraLayout);
+            ApplyCameraOverlayLayout();
+            ApplyCameraFramingTransform();
+            UpdateCameraStudioStatus();
+            ScheduleCameraStudioSave();
+        }
+        finally
+        {
+            CameraBackgroundBlurComboBox.IsEnabled =
+                _cameraPreviewSession?.BackgroundEffects.IsSupported is true;
+            _cameraEffectTransitionGate.Release();
+        }
     }
 
     private async void OnCloseCameraStudioClicked(
         object sender,
         RoutedEventArgs e) =>
         await StopCameraStudioAsync();
+
+    private async void OnCameraBackgroundBlurChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        if (_updatingCameraStudioControls ||
+            CameraBackgroundBlurComboBox.SelectedItem is not
+                ComboBoxItem { Tag: string modeName } ||
+            !Enum.TryParse(modeName, out BackgroundBlurMode mode))
+        {
+            return;
+        }
+
+        await _cameraEffectTransitionGate.WaitAsync();
+        try
+        {
+            CameraBackgroundBlurComboBox.IsEnabled = false;
+            PresenterLayoutSettings previousLayout = _cameraLayout;
+            _cameraLayout = (_cameraLayout with
+            {
+                Effects = _cameraLayout.Effects with
+                {
+                    BackgroundBlur = mode,
+                },
+            }).ConstrainToFrame();
+            PresenterLayoutSettings requestedLayout = _cameraLayout;
+            if (_cameraPreviewSession is not null)
+            {
+                if (!await StopCameraStudioCoreAsync(resetPreview: false))
+                {
+                    _cameraLayout = previousLayout;
+                    UpdateCameraStudioControls();
+                    ReadinessInfoBar.Title = "Camera settings need attention";
+                    ReadinessInfoBar.Message =
+                        "The background effect was not changed because the prior camera setting could not be restored.";
+                    ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+                    return;
+                }
+                _cameraLayout = requestedLayout;
+                if (!await StartCameraStudioCoreAsync())
+                {
+                    _cameraLayout = previousLayout;
+                    UpdateCameraStudioControls();
+                    return;
+                }
+            }
+            ScheduleCameraStudioSave();
+            UpdateCameraStudioStatus();
+        }
+        finally
+        {
+            CameraBackgroundBlurComboBox.IsEnabled =
+                _cameraPreviewSession?.BackgroundEffects.IsSupported is true;
+            _cameraEffectTransitionGate.Release();
+        }
+    }
 
     private void UpdateCameraStudioControls()
     {
@@ -519,6 +680,8 @@ public sealed partial class MainPage : Page, IDisposable
             CameraCenterYSlider.Value = _cameraLayout.Framing.CenterY;
             CameraSizeSlider.Value = _cameraLayout.Width;
             CameraExposureSlider.Value = _cameraLayout.Effects.Exposure;
+            SelectBackgroundBlurMode(
+                _cameraLayout.Effects.BackgroundBlur);
         }
         finally
         {
@@ -532,7 +695,8 @@ public sealed partial class MainPage : Page, IDisposable
         string status =
             $"Overlay {_cameraLayout.X:P0} left, {_cameraLayout.Y:P0} top, " +
             $"size {_cameraLayout.Width:P0}; zoom {_cameraLayout.Framing.Zoom:F1}x; " +
-            $"brightness {_cameraLayout.Effects.Exposure:+0.00;-0.00;0.00}.";
+            $"brightness {_cameraLayout.Effects.Exposure:+0.00;-0.00;0.00}; " +
+            $"background {_cameraLayout.Effects.BackgroundBlur}.";
         CameraStudioStatusText.Text = status;
         AutomationProperties.SetItemStatus(
             CameraPreviewBubble,
@@ -560,6 +724,67 @@ public sealed partial class MainPage : Page, IDisposable
         CancellationTokenSource cancellation = new();
         _cameraSettingsSaveCancellation = cancellation;
         _ = SaveCameraStudioAfterDelayAsync(cancellation);
+    }
+
+    private void ConfigureBackgroundEffectControls(
+        BackgroundEffectSupport support)
+    {
+        _updatingCameraStudioControls = true;
+        try
+        {
+            CameraBackgroundBlurComboBox.Items.Clear();
+            CameraBackgroundBlurComboBox.Items.Add(
+                new ComboBoxItem
+                {
+                    Content = "Off",
+                    Tag = BackgroundBlurMode.Off.ToString(),
+                });
+            if (support.StandardBlur)
+            {
+                CameraBackgroundBlurComboBox.Items.Add(
+                    new ComboBoxItem
+                    {
+                        Content = "Standard blur",
+                        Tag = BackgroundBlurMode.Standard.ToString(),
+                    });
+            }
+            if (support.PortraitBlur)
+            {
+                CameraBackgroundBlurComboBox.Items.Add(
+                    new ComboBoxItem
+                    {
+                        Content = "Portrait blur",
+                        Tag = BackgroundBlurMode.Portrait.ToString(),
+                    });
+            }
+            CameraBackgroundBlurComboBox.IsEnabled =
+                support.IsSupported;
+            SelectBackgroundBlurMode(support.ActiveMode);
+        }
+        finally
+        {
+            _updatingCameraStudioControls = false;
+        }
+    }
+
+    private void SelectBackgroundBlurMode(BackgroundBlurMode mode)
+    {
+        for (int index = 0;
+             index < CameraBackgroundBlurComboBox.Items.Count;
+             index++)
+        {
+            if (CameraBackgroundBlurComboBox.Items[index] is
+                ComboBoxItem { Tag: string tag } &&
+                string.Equals(
+                    tag,
+                    mode.ToString(),
+                    StringComparison.Ordinal))
+            {
+                CameraBackgroundBlurComboBox.SelectedIndex = index;
+                return;
+            }
+        }
+        CameraBackgroundBlurComboBox.SelectedIndex = 0;
     }
 
     private async Task SaveCameraStudioAfterDelayAsync(
@@ -1490,6 +1715,22 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        await ShutdownAsync();
+    }
+
+    public async Task<bool> ShutdownAsync()
+    {
+        Task<bool> task = _shutdownTask ??= ShutdownCoreAsync();
+        bool result = await task;
+        if (!result && ReferenceEquals(_shutdownTask, task))
+        {
+            _shutdownTask = null;
+        }
+        return result;
+    }
+
+    private async Task<bool> ShutdownCoreAsync()
+    {
         _postProcessingCancellation.Cancel();
         _cameraSettingsSaveCancellation?.Cancel();
         try
@@ -1501,14 +1742,18 @@ public sealed partial class MainPage : Page, IDisposable
             System.Diagnostics.Debug.WriteLine(
                 $"Camera studio settings could not be saved: {exception}");
         }
-        finally
+        bool cameraRestored = await StopCameraStudioAsync();
+        if (!cameraRestored)
         {
-            await StopCameraStudioAsync();
+            await Launcher.LaunchUriAsync(
+                new Uri("ms-settings:camera"));
+            return false;
         }
         _recordingUiTimer.Stop();
         ProjectPreviewPlayer.Source = null;
         DisposeGlobalHotKeys();
         await StopCaptureAsync(RecordingStopReason.ApplicationExit);
+        return true;
     }
 
     public void Dispose()
@@ -1569,7 +1814,14 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
 
-        await StopCameraStudioAsync(resetPreview: false);
+        if (!await StopCameraStudioAsync(resetPreview: false))
+        {
+            ReadinessInfoBar.Title = "Camera settings need attention";
+            ReadinessInfoBar.Message =
+                "Recording did not start because the prior camera background effect could not be restored.";
+            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+            return;
+        }
         StartRecordingButton.IsEnabled = false;
         ReadinessInfoBar.Title = "Preparing encoder";
         ReadinessInfoBar.Message = "Validating the isolated media worker.";

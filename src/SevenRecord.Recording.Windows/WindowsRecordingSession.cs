@@ -217,6 +217,20 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
                         projectWriter,
                         layout: request.CameraLayout,
                         cancellationToken: cancellationToken);
+                    if (camera.BackgroundEffects.ActiveMode !=
+                        request.CameraLayout.Effects.BackgroundBlur)
+                    {
+                        issues.Add(
+                            new WindowsRecordingIssue(
+                                "camera-background-effect",
+                                RecordingIssueSeverity.Warning,
+                                camera.BackgroundEffects.Message ??
+                                "The selected background effect is unavailable on this camera."));
+                    }
+                }
+                catch (CameraBackgroundEffectRestoreException)
+                {
+                    throw;
                 }
                 catch (Exception exception) when (
                     exception is COMException or
@@ -459,10 +473,18 @@ public sealed class WindowsRecordingSession : IAsyncDisposable
         }
         if (_camera is not null)
         {
-            await DisposeComponentAsync(
-                "camera",
-                _camera.DisposeAsync,
-                issues);
+            try
+            {
+                await _camera.DisposeAsync();
+            }
+            catch (CameraBackgroundEffectRestoreException exception)
+            {
+                issues.Add(Error("camera-background-restore", exception));
+            }
+            catch (Exception exception)
+            {
+                issues.Add(Warning("camera-dispose", exception));
+            }
         }
         if (_cursor is not null)
         {

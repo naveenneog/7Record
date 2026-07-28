@@ -20,6 +20,8 @@ public sealed class CameraPreviewSession : IAsyncDisposable
     private const int PreviewMaximumWidth = 640;
     private readonly MediaCapture _capture;
     private readonly CanvasDevice _device;
+    private readonly BackgroundEffectSupport? _previousBackgroundEffects;
+    private readonly BackgroundEffectSupport _appliedBackgroundEffects;
     private readonly MediaFrameReader _reader;
     private readonly CanvasRenderTarget _previewTarget;
     private readonly CanvasRenderTarget _renderTarget;
@@ -30,6 +32,7 @@ public sealed class CameraPreviewSession : IAsyncDisposable
     private PresenterLayoutSettings _layout;
     private long _lastPreviewTimestamp;
     private bool _disposed;
+    private bool _readerStopped;
 
     private CameraPreviewSession(
         string deviceName,
@@ -39,6 +42,8 @@ public sealed class CameraPreviewSession : IAsyncDisposable
         MediaFrameReader reader,
         CanvasDevice device,
         CanvasRenderTarget renderTarget,
+        BackgroundEffectSupport? previousBackgroundEffects,
+        BackgroundEffectSupport backgroundEffects,
         PresenterLayoutSettings layout)
     {
         DeviceName = deviceName;
@@ -47,7 +52,10 @@ public sealed class CameraPreviewSession : IAsyncDisposable
         _capture = capture;
         _reader = reader;
         _device = device;
+        _previousBackgroundEffects = previousBackgroundEffects;
+        _appliedBackgroundEffects = backgroundEffects;
         _renderTarget = renderTarget;
+        BackgroundEffects = backgroundEffects;
         (int previewWidth, int previewHeight) = ScaleToFit(
             width,
             height,
@@ -65,6 +73,8 @@ public sealed class CameraPreviewSession : IAsyncDisposable
     }
 
     public string DeviceName { get; }
+
+    public BackgroundEffectSupport BackgroundEffects { get; }
 
     public event Action<Exception>? Failed;
 
@@ -85,21 +95,40 @@ public sealed class CameraPreviewSession : IAsyncDisposable
                      candidate.SourceInfos.Any(info =>
                          info.SourceKind is MediaFrameSourceKind.Color)))
         {
-            try
+            foreach (MediaCaptureSharingMode sharingMode in new[]
+                     {
+                         MediaCaptureSharingMode.SharedReadOnly,
+                         MediaCaptureSharingMode.ExclusiveControl,
+                     })
             {
-                return await CreateFromGroupAsync(
-                    group,
-                    layout,
-                    cancellationToken);
-            }
-            catch (OperationCanceledException)
-                when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                failures.Add(exception);
+                try
+                {
+                    return await CreateFromGroupAsync(
+                        group,
+                        layout,
+                        sharingMode,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (CameraBackgroundEffectRestoreException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    if (exception.Data.Contains(
+                            "BackgroundEffectRestoreFailure"))
+                    {
+                        throw new CameraBackgroundEffectRestoreException(
+                            "Windows could not restore the previous camera background effect.",
+                            exception);
+                    }
+                    failures.Add(exception);
+                }
             }
         }
 
@@ -123,21 +152,45 @@ public sealed class CameraPreviewSession : IAsyncDisposable
         {
             return;
         }
-        _disposed = true;
         _reader.FrameArrived -= OnFrameArrived;
         Exception? failure = null;
-        try
+        if (!_readerStopped)
         {
-            await _reader.StopAsync();
-        }
-        catch (Exception exception)
-        {
-            failure = exception;
+            try
+            {
+                await _reader.StopAsync();
+                _readerStopped = true;
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
         }
         try
         {
             await _processingGate.WaitAsync();
             _processingGate.Release();
+        }
+        catch (Exception exception)
+        {
+            failure = failure is null
+                ? exception
+                : new AggregateException(failure, exception);
+        }
+        try
+        {
+            if (_previousBackgroundEffects is not null)
+            {
+                await WindowsStudioBackgroundEffectController
+                    .RestoreWithRetryAsync(
+                    _capture.VideoDeviceController,
+                    _previousBackgroundEffects,
+                    _appliedBackgroundEffects);
+            }
+        }
+        catch (CameraBackgroundEffectRestoreException)
+        {
+            throw;
         }
         catch (Exception exception)
         {
@@ -170,26 +223,98 @@ public sealed class CameraPreviewSession : IAsyncDisposable
         {
             throw failure;
         }
+        _disposed = true;
     }
 
     private static async Task<CameraPreviewSession> CreateFromGroupAsync(
         MediaFrameSourceGroup group,
         PresenterLayoutSettings layout,
+        MediaCaptureSharingMode sharingMode,
         CancellationToken cancellationToken)
     {
         MediaCapture capture = new();
+        BackgroundEffectSupport? previousBackgroundEffects = null;
+        BackgroundEffectSupport? appliedBackgroundEffects = null;
         try
         {
+            PresenterLayoutSettings requestedLayout =
+                layout.ConstrainToFrame();
             cancellationToken.ThrowIfCancellationRequested();
             await capture.InitializeAsync(
                 new MediaCaptureInitializationSettings
                 {
                     MemoryPreference = MediaCaptureMemoryPreference.Auto,
-                    SharingMode = MediaCaptureSharingMode.SharedReadOnly,
+                    SharingMode = sharingMode,
                     SourceGroup = group,
                     StreamingCaptureMode = StreamingCaptureMode.Video,
                 });
             cancellationToken.ThrowIfCancellationRequested();
+            previousBackgroundEffects =
+                WindowsStudioBackgroundEffectController.Query(
+                    capture.VideoDeviceController);
+            if (!previousBackgroundEffects.OperationSucceeded &&
+                !previousBackgroundEffects.DefinitelyUnsupported &&
+                requestedLayout.Effects.BackgroundBlur is
+                    BackgroundBlurMode.Off)
+            {
+                throw new InvalidOperationException(
+                    "Windows could not verify that background blur is off.");
+            }
+            if (!previousBackgroundEffects.OperationSucceeded &&
+                requestedLayout.Effects.BackgroundBlur is not
+                    BackgroundBlurMode.Off)
+            {
+                throw new InvalidOperationException(
+                    "Windows could not safely inspect the current camera background effect.");
+            }
+            if (sharingMode is MediaCaptureSharingMode.SharedReadOnly &&
+                previousBackgroundEffects.OperationSucceeded &&
+                previousBackgroundEffects.IsSupported &&
+                requestedLayout.Effects.BackgroundBlur !=
+                    previousBackgroundEffects.ActiveMode)
+            {
+                throw new CameraEffectControlRequiredException();
+            }
+            BackgroundEffectSupport backgroundEffects =
+                sharingMode is MediaCaptureSharingMode.ExclusiveControl &&
+                previousBackgroundEffects.OperationSucceeded
+                    ? WindowsStudioBackgroundEffectController.Apply(
+                        capture.VideoDeviceController,
+                        requestedLayout.Effects.BackgroundBlur)
+                    : previousBackgroundEffects with
+                    {
+                        Message = requestedLayout.Effects.BackgroundBlur ==
+                            previousBackgroundEffects.ActiveMode
+                            ? null
+                            : "Camera is shared; using the current Windows background effect.",
+                    };
+            if (sharingMode is MediaCaptureSharingMode.ExclusiveControl &&
+                !backgroundEffects.OperationSucceeded)
+            {
+                appliedBackgroundEffects = backgroundEffects;
+                throw new InvalidOperationException(
+                    backgroundEffects.Message ??
+                    "Windows did not confirm the requested background effect.");
+            }
+            appliedBackgroundEffects = backgroundEffects;
+            if (requestedLayout.Effects.BackgroundBlur is not
+                    BackgroundBlurMode.Off &&
+                backgroundEffects.ActiveMode !=
+                    requestedLayout.Effects.BackgroundBlur)
+            {
+                throw new InvalidOperationException(
+                    backgroundEffects.Message ??
+                    "The requested person-aware background effect could not be enabled.");
+            }
+            PresenterLayoutSettings effectiveLayout =
+                requestedLayout with
+                {
+                    Effects = requestedLayout.Effects with
+                    {
+                        BackgroundBlur =
+                            backgroundEffects.ActiveMode,
+                    },
+                };
             MediaFrameSource source = capture.FrameSources.Values
                 .First(candidate =>
                     candidate.Info.SourceKind is MediaFrameSourceKind.Color);
@@ -223,7 +348,12 @@ public sealed class CameraPreviewSession : IAsyncDisposable
                 reader,
                 device,
                 renderTarget,
-                layout);
+                sharingMode is MediaCaptureSharingMode.ExclusiveControl
+                    && previousBackgroundEffects.OperationSucceeded
+                    ? previousBackgroundEffects
+                    : null,
+                backgroundEffects,
+                effectiveLayout);
             cancellationToken.ThrowIfCancellationRequested();
             MediaFrameReaderStartStatus status = await reader.StartAsync();
             cancellationToken.ThrowIfCancellationRequested();
@@ -246,8 +376,44 @@ public sealed class CameraPreviewSession : IAsyncDisposable
                 throw;
             }
         }
-        catch
+        catch (Exception initializationException)
         {
+            if (previousBackgroundEffects is
+                    { OperationSucceeded: true } &&
+                sharingMode is MediaCaptureSharingMode.ExclusiveControl)
+            {
+                try
+                {
+                    if (appliedBackgroundEffects is not null)
+                    {
+                        await WindowsStudioBackgroundEffectController
+                            .RestoreWithRetryAsync(
+                                capture.VideoDeviceController,
+                                previousBackgroundEffects,
+                                appliedBackgroundEffects,
+                                CancellationToken.None);
+                    }
+                    else
+                    {
+                        BackgroundEffectSupport restored =
+                            WindowsStudioBackgroundEffectController.Restore(
+                                capture.VideoDeviceController,
+                                previousBackgroundEffects);
+                        if (!restored.OperationSucceeded)
+                        {
+                            throw new CameraBackgroundEffectRestoreException(
+                                restored.Message ??
+                                "The previous camera effect could not be restored.");
+                        }
+                    }
+                }
+                catch (Exception restorationException)
+                {
+                    initializationException.Data[
+                        "BackgroundEffectRestoreFailure"] =
+                        restorationException.ToString();
+                }
+            }
             capture.Dispose();
             throw;
         }

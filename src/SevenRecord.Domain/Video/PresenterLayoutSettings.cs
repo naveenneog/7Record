@@ -34,9 +34,19 @@ public sealed record CameraFramingSettings(
         };
 }
 
+public enum BackgroundBlurMode
+{
+    Off,
+    Standard,
+    Portrait,
+}
+
 public sealed record CameraEffectSettings(double Exposure)
 {
     public static CameraEffectSettings Default { get; } = new(0);
+
+    public BackgroundBlurMode BackgroundBlur { get; init; } =
+        BackgroundBlurMode.Off;
 
     public CameraEffectSettings Constrain() =>
         this with
@@ -45,6 +55,9 @@ public sealed record CameraEffectSettings(double Exposure)
                 double.IsFinite(Exposure) ? Exposure : 0,
                 -1,
                 1),
+            BackgroundBlur = Enum.IsDefined(BackgroundBlur)
+                ? BackgroundBlur
+                : BackgroundBlurMode.Off,
         };
 }
 

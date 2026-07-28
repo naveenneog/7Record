@@ -120,6 +120,8 @@ public static class ProjectTimelineLoader
                             ["cameraCenterX"] = layout.Framing.CenterX,
                             ["cameraCenterY"] = layout.Framing.CenterY,
                             ["cameraExposure"] = layout.Effects.Exposure,
+                            ["cameraBackgroundBlur"] =
+                                (double)layout.Effects.BackgroundBlur,
                         },
                     });
             }

@@ -130,6 +130,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - The Recorder now has a persistent pre-record camera studio: idle preview, zoom/crop framing, overlay size/placement, brightness enhancement, reset, accessibility status, local settings persistence, and matching export metadata.
 - Loading speed-ups now require aligned visual freeze, cursor inactivity, and silence evidence from every available audio track; missing evidence, dropouts, failures, or cancellation cannot leave stale enabled edits.
 - `packages/7record-cli` implements the secure `npx 7record` flow. Publishing is blocked only on provisioning and pinning the production MSIX signing certificate thumbprint.
+- Camera Studio now controls native Windows Studio Effects person-aware Standard/Portrait blur when available. It verifies applied flags, preserves concurrent Windows changes, restores complete prior flags, fails closed for privacy, and falls back to Off on unsupported cameras.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

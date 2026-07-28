@@ -57,6 +57,7 @@ if (args.Length > 0 &&
                 preview.Height,
                 frames,
                 outputFiles = 0,
+                backgroundEffects = preview.BackgroundEffects,
             },
             serializerOptions));
     }

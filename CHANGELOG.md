@@ -54,6 +54,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Loading confidence release suite: 100 tests passed, zero warnings/errors; synthetic silent audio produced one silence interval while audible audio produced none.
 - npm installer tests: 5 passed; package dry-run contains only the CLI, installer, README, and manifest.
 - The npm installer intentionally fails closed until the production signing certificate thumbprint is provisioned and pinned.
+- Windows Studio effect tests validate native driver flags and ABI layout; full build/tests and UIA pass with zero warnings/errors.
+- Current redirected camera hardware does not advertise Studio blur and intermittently withheld preview frames; unsupported hardware remains safely Off with explicit status.
 - Redirected camera sources were enumerated but delivered no frames during final camera-studio hardware validation; device acceptance must be rerun outside the current Remote Desktop state.
 
 ### Added
@@ -65,6 +67,10 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added accessible camera-position/framing status and native slider controls.
 - Added a zero-dependency `npx 7record` Windows installer package with architecture selection, GitHub release resolution, SHA-256 verification, pinned publisher verification, package-identity validation, MSIX installation, and launch.
 - Added a signed multi-architecture release packaging script that emits release assets and checksum files.
+- Added person-aware Standard and Portrait background blur through Windows Studio Effects on supported NPU cameras.
+- Added camera-effect capability discovery, shared-readonly compatibility fallback, exact driver SET readback, and full raw-state restoration.
+- Added fail-closed privacy behavior: requested blur cannot silently record unblurred frames, and recording cannot start after failed camera-state restoration.
+- Added serialized camera-effect transitions and an awaited window-close shutdown path so effect restoration completes before process exit.
 
 ## 2026-07-26
 

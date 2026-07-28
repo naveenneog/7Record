@@ -22,6 +22,7 @@
     <Project Path="tests/SevenRecord.Analysis.Tests/SevenRecord.Analysis.Tests.csproj" />
     <Project Path="tests/SevenRecord.Audio.Tests/SevenRecord.Audio.Tests.csproj" />
     <Project Path="tests/SevenRecord.Capture.Tests/SevenRecord.Capture.Tests.csproj" />
+    <Project Path="tests/SevenRecord.Camera.Tests/SevenRecord.Camera.Tests.csproj" />
     <Project Path="tests/SevenRecord.Domain.Tests/SevenRecord.Domain.Tests.csproj" />
     <Project Path="tests/SevenRecord.Editor.Tests/SevenRecord.Editor.Tests.csproj" />
     <Project Path="tests/SevenRecord.Export.Tests/SevenRecord.Export.Tests.csproj" />
