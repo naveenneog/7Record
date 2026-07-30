@@ -58,6 +58,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Current redirected camera hardware does not advertise Studio blur and intermittently withheld preview frames; unsupported hardware remains safely Off with explicit status.
 - Audio mixer release suite passed with zero warnings/errors; a real single-track fixture measured an exact +6.0 dB exported gain delta.
 - Clip-editor release suite passed with zero warnings/errors; a real edit rendered three seconds from a later green segment followed by two seconds from an earlier blue segment with synchronized audio.
+- Edited-preview release suite passed with zero warnings/errors and UIA; preview scratch files and canceled worker processes are cleaned per render job.
 - Redirected camera sources were enumerated but delivered no frames during final camera-studio hardware validation; device acceptance must be rerun outside the current Remote Desktop state.
 
 ### Added
@@ -80,6 +81,8 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added atomic `clip-edits.json` persistence with immutable source ranges shared by every media track.
 - Remapped visual automation and captions into edited output time while applying audio repair before clip edits.
 - Added FFmpeg trim/reorder filter graphs that apply the same edit sequence to screen, camera, microphone, and system audio.
+- Added edit-aware low-resolution preview rendering through the same media-worker graph used by final export.
+- Added latest-revision project-open and preview cancellation so stale loads/renders cannot replace current editor state.
 
 ## 2026-07-26
 

@@ -28,6 +28,10 @@ public sealed record RenderPlan(
         ProjectAudioMixSettings.Default;
 
     public IReadOnlyList<TimelineEditSlice> EditSlices { get; init; } = [];
+
+    public bool IsPreview { get; init; }
+
+    public string? PreviewScratchId { get; init; }
 }
 
 public static class RenderPlanBuilder

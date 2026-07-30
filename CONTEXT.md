@@ -133,6 +133,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - Camera Studio now controls native Windows Studio Effects person-aware Standard/Portrait blur when available. It verifies applied flags, preserves concurrent Windows changes, restores complete prior flags, fails closed for privacy, and falls back to Off on unsupported cameras.
 - Projects now persist microphone/system-audio mute and gain controls; FFmpeg export preserves relative two-track balance and applies single-track gain after loudness normalization.
 - Projects now persist synchronized non-destructive clip slices supporting trim, split, delete, reorder, undo, and redo; automation/captions are remapped and audio repairs are applied before shared clip edits.
+- The project player now refreshes a low-resolution composite after clip, audio, framing, automation, preset, or caption changes using revisioned/cancellable media-worker renders.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

@@ -68,6 +68,11 @@ public sealed partial class MainPage : Page, IDisposable
     private CancellationTokenSource? _cameraPreviewStartupCancellation;
     private CancellationTokenSource? _cameraSettingsSaveCancellation;
     private CancellationTokenSource? _editorStateSaveCancellation;
+    private CancellationTokenSource? _editorPreviewCancellation;
+    private CancellationTokenSource? _projectOpenCancellation;
+    private int _projectOpenRevision;
+    private readonly HashSet<string> _pendingEditorPreviewCleanup =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _editorStateSaveGate = new(1, 1);
     private readonly SemaphoreSlim _clipEditGate = new(1, 1);
     private bool _cameraOverlayDragging;
@@ -102,6 +107,7 @@ public sealed partial class MainPage : Page, IDisposable
     private double _cameraOverlayStartX;
     private double _cameraOverlayStartY;
     private string? _currentPreviewPath;
+    private string? _editorPreviewPath;
     private MediaPlaybackList? _projectPlaybackList;
     private TimelineDocument? _currentTimeline;
     private CaptionEditSession? _captionEditSession;
@@ -176,6 +182,24 @@ public sealed partial class MainPage : Page, IDisposable
             InfoBarSeverity.Warning or InfoBarSeverity.Error)
         {
             RecordingHealthExpander.IsExpanded = true;
+        }
+    }
+
+    private static void DeleteDirectoryIfPossible(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            return;
+        }
+        try
+        {
+            Directory.Delete(path, recursive: true);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 
@@ -1025,6 +1049,14 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async Task OpenProjectAsync(string projectPath)
     {
+        int revision = Interlocked.Increment(
+            ref _projectOpenRevision);
+        _projectOpenCancellation?.Cancel();
+        _projectOpenCancellation?.Dispose();
+        CancellationTokenSource openCancellation = new();
+        _projectOpenCancellation = openCancellation;
+        CancellationToken cancellationToken =
+            openCancellation.Token;
         ClearProjectEditorState();
         _loadingProject = true;
         TimelineProjectTitle.Text = "Opening recording...";
@@ -1032,15 +1064,29 @@ public sealed partial class MainPage : Page, IDisposable
         TimelineSection.Visibility = Visibility.Visible;
         try
         {
-            TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(projectPath);
+            TimelineDocument timeline =
+                await ProjectTimelineLoader.LoadAsync(
+                    projectPath,
+                    cancellationToken);
             CaptionEditSession? captionSession =
-                await LoadCaptionEditSessionAsync(projectPath, timeline.Duration);
+                await LoadCaptionEditSessionAsync(
+                    projectPath,
+                    timeline.Duration,
+                    cancellationToken);
             TimelineEditDocument editDocument =
                 await TimelineEditStore.LoadAsync(
                     projectPath,
-                    timeline.Duration);
+                    timeline.Duration,
+                    cancellationToken);
             EditorProjectStateLoadResult editorState =
-                await EditorProjectStateStore.LoadAsync(projectPath);
+                await EditorProjectStateStore.LoadAsync(
+                    projectPath,
+                    cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (revision != Volatile.Read(ref _projectOpenRevision))
+            {
+                return;
+            }
 
             _currentTimeline = timeline;
             _captionEditSession = captionSession;
@@ -1106,8 +1152,17 @@ public sealed partial class MainPage : Page, IDisposable
             TimelineSection.StartBringIntoView();
             ProjectPreviewPlayer.Focus(FocusState.Programmatic);
         }
+        catch (OperationCanceledException)
+            when (openCancellation.IsCancellationRequested)
+        {
+            return;
+        }
         catch (Exception exception)
         {
+            if (revision != Volatile.Read(ref _projectOpenRevision))
+            {
+                return;
+            }
             ClearProjectEditorState();
             TimelineProjectTitle.Text = $"Timeline could not be loaded: {exception.Message}";
             ProjectDetailEmptyState.Visibility = Visibility.Collapsed;
@@ -1117,8 +1172,12 @@ public sealed partial class MainPage : Page, IDisposable
         }
         finally
         {
-            _loadingProject = false;
-            SetProjectActionsEnabled(_currentTimeline is not null);
+            if (revision == Volatile.Read(ref _projectOpenRevision))
+            {
+                _loadingProject = false;
+                SetProjectActionsEnabled(_currentTimeline is not null);
+                ScheduleEditedPreviewRefresh();
+            }
         }
     }
 
@@ -1131,9 +1190,10 @@ public sealed partial class MainPage : Page, IDisposable
         _audioMix = ProjectAudioMixSettings.Default;
         UpdateAudioMixControls();
         _currentPreviewPath = null;
+        _editorPreviewCancellation?.Cancel();
         _projectPlaybackList = null;
         ProjectPreviewPlayer.Source = null;
-        _projectPlaybackList = null;
+        DeleteEditorPreviewFile();
         ProjectPreviewStatusText.Text = "No recording is loaded.";
         TimelineItemsList.Items.Clear();
         CaptionSelectorComboBox.Items.Clear();
@@ -1212,6 +1272,7 @@ public sealed partial class MainPage : Page, IDisposable
 
         UpdateRenderPlanSummary();
         await PersistEditorStateAsync();
+        ScheduleEditedPreviewRefresh();
     }
 
     private void OnAudioMixChanged(
@@ -1238,6 +1299,7 @@ public sealed partial class MainPage : Page, IDisposable
         UpdateAudioMixStatus();
         UpdateRenderPlanSummary();
         ScheduleEditorStateSave();
+        ScheduleEditedPreviewRefresh();
     }
 
     private void UpdateAudioMixControls()
@@ -1497,6 +1559,7 @@ public sealed partial class MainPage : Page, IDisposable
         UpdateRenderPlanSummary();
         ProjectPreviewStatusText.Text =
             "Clip edits are saved and will be applied to export. Source media remains unchanged.";
+        ScheduleEditedPreviewRefresh();
     }
 
     private void ScheduleEditorStateSave()
@@ -1520,6 +1583,209 @@ public sealed partial class MainPage : Page, IDisposable
         }
         catch (OperationCanceledException)
             when (cancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void ScheduleEditedPreviewRefresh()
+    {
+        if (_currentTimeline is null || _loadingProject)
+        {
+            return;
+        }
+        _editorPreviewCancellation?.Cancel();
+        _editorPreviewCancellation?.Dispose();
+        CancellationTokenSource cancellation = new();
+        _editorPreviewCancellation = cancellation;
+        _ = RefreshEditedPreviewAfterDelayAsync(cancellation);
+    }
+
+    private async Task RefreshEditedPreviewAfterDelayAsync(
+        CancellationTokenSource cancellation)
+    {
+        string? planPath = null;
+        string? outputPath = null;
+        string? previewScratchPath = null;
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(500),
+                cancellation.Token);
+            TimelineDocument? timeline = _currentTimeline;
+            if (timeline is null)
+            {
+                return;
+            }
+            string revision = Guid.NewGuid().ToString("N");
+            RenderPlan plan = CurrentRenderPlan();
+            plan = plan with
+            {
+                IsPreview = true,
+                PreviewScratchId = revision,
+                Canvas = plan.Preset switch
+                {
+                    ExportAspectRatioPreset.Portrait1080p =>
+                        new RenderCanvas(540, 960),
+                    ExportAspectRatioPreset.Square1080p =>
+                        new RenderCanvas(720, 720),
+                    _ => new RenderCanvas(960, 540),
+                },
+            };
+            string temporaryRoot = Path.Combine(
+                timeline.ProjectPath,
+                "temp");
+            Directory.CreateDirectory(temporaryRoot);
+            previewScratchPath = Path.Combine(
+                temporaryRoot,
+                $"preview-export-{revision}");
+            planPath = Path.Combine(
+                temporaryRoot,
+                $"editor-preview-{revision}.json");
+            outputPath = Path.Combine(
+                temporaryRoot,
+                $"editor-preview-{revision}.mp4");
+            await File.WriteAllTextAsync(
+                planPath,
+                JsonSerializer.Serialize(
+                    plan,
+                    RenderPlanSerializerOptions),
+                cancellation.Token);
+            string workerPath = MediaWorkerLocator.FindExecutable() ??
+                throw new InvalidOperationException(
+                    "The media worker is unavailable.");
+            ProjectPreviewStatusText.Text =
+                "Refreshing the edited preview...";
+            RenderPlanExportResult result =
+                await MediaWorkerExportClient.ExportAsync(
+                    workerPath,
+                    planPath,
+                    outputPath,
+                    cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (!result.Succeeded ||
+                !string.Equals(
+                    _currentTimeline?.ProjectPath,
+                    timeline.ProjectPath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                }
+                if (!result.Succeeded)
+                {
+                    ProjectPreviewStatusText.Text =
+                        $"Edited preview could not be rendered: {result.Error}";
+                }
+                return;
+            }
+
+            string? previousPreview = _editorPreviewPath;
+            _editorPreviewPath = result.OutputPath;
+            _projectPlaybackList = null;
+            _currentPreviewPath = null;
+            ProjectPreviewPlayer.Source = null;
+            ProjectPreviewPlayer.Source =
+                MediaSource.CreateFromUri(new Uri(result.OutputPath));
+            OpenRecordingExternallyButton.IsEnabled = false;
+            ProjectPreviewStatusText.Text =
+                "Playing the edited preview. Final export uses the selected resolution.";
+            DeleteEditorPreviewFileOrQueue(previousPreview);
+        }
+        catch (OperationCanceledException)
+            when (cancellation.IsCancellationRequested)
+        {
+            DeleteEditorPreviewFileOrQueue(outputPath);
+        }
+        catch (Exception exception)
+        {
+            ProjectPreviewStatusText.Text =
+                $"Edited preview could not be rendered: {exception.Message}";
+        }
+        finally
+        {
+            if (planPath is not null && File.Exists(planPath))
+            {
+                File.Delete(planPath);
+            }
+            DeletePartialPreviewFiles(outputPath);
+            DeleteDirectoryIfPossible(previewScratchPath);
+        }
+    }
+
+    private static void DeletePartialPreviewFiles(string? outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            return;
+        }
+        string directory = Path.GetDirectoryName(outputPath)!;
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+        string pattern =
+            $".{Path.GetFileNameWithoutExtension(outputPath)}-*.partial.mp4";
+        foreach (string partialPath in Directory.GetFiles(
+                     directory,
+                     pattern,
+                     SearchOption.TopDirectoryOnly))
+        {
+            DeleteFileIfPossible(partialPath);
+        }
+    }
+
+    private void DeleteEditorPreviewFile()
+    {
+        string? path = _editorPreviewPath;
+        _editorPreviewPath = null;
+        DeleteEditorPreviewFileOrQueue(path);
+        RetryPendingEditorPreviewCleanup();
+    }
+
+    private void DeleteEditorPreviewFileOrQueue(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return;
+        }
+        try
+        {
+            File.Delete(path);
+            _pendingEditorPreviewCleanup.Remove(path);
+        }
+        catch (IOException)
+        {
+            _pendingEditorPreviewCleanup.Add(path);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _pendingEditorPreviewCleanup.Add(path);
+        }
+    }
+
+    private void RetryPendingEditorPreviewCleanup()
+    {
+        foreach (string path in _pendingEditorPreviewCleanup.ToArray())
+        {
+            DeleteEditorPreviewFileOrQueue(path);
+        }
+    }
+
+    private static void DeleteFileIfPossible(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return;
+        }
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
         {
         }
     }
@@ -1665,6 +1931,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         UpdateRenderPlanSummary();
         await PersistEditorStateAsync();
+        ScheduleEditedPreviewRefresh();
     }
 
     private async void OnSaveRenderPlanClicked(object sender, RoutedEventArgs e)
@@ -1936,7 +2203,8 @@ public sealed partial class MainPage : Page, IDisposable
 
     private static async Task<CaptionEditSession?> LoadCaptionEditSessionAsync(
         string projectPath,
-        TimeSpan timelineDuration)
+        TimeSpan timelineDuration,
+        CancellationToken cancellationToken = default)
     {
         string path = Path.Combine(projectPath, "captions.json");
         if (!File.Exists(path))
@@ -1944,7 +2212,9 @@ public sealed partial class MainPage : Page, IDisposable
             return null;
         }
 
-        string json = await File.ReadAllTextAsync(path);
+        string json = await File.ReadAllTextAsync(
+            path,
+            cancellationToken);
         CaptionDocument? document = JsonSerializer.Deserialize<CaptionDocument>(
             json,
             RenderPlanSerializerOptions);
@@ -2031,6 +2301,7 @@ public sealed partial class MainPage : Page, IDisposable
         PopulateCaptionEditor(selectedId);
         UpdateRenderPlanSummary();
         RenderPlanSummaryText.Text += " Caption edits saved.";
+        ScheduleEditedPreviewRefresh();
     }
 
     private RenderPlan CurrentRenderPlan() =>
@@ -2080,6 +2351,9 @@ public sealed partial class MainPage : Page, IDisposable
         _postProcessingCancellation.Cancel();
         _cameraSettingsSaveCancellation?.Cancel();
         _editorStateSaveCancellation?.Cancel();
+        _editorPreviewCancellation?.Cancel();
+        _projectOpenCancellation?.Cancel();
+        _editorPreviewCancellation?.Cancel();
         await PersistEditorStateAsync();
         try
         {
@@ -2099,6 +2373,8 @@ public sealed partial class MainPage : Page, IDisposable
         }
         _recordingUiTimer.Stop();
         ProjectPreviewPlayer.Source = null;
+        DeleteEditorPreviewFile();
+        RetryPendingEditorPreviewCleanup();
         DisposeGlobalHotKeys();
         await StopCaptureAsync(RecordingStopReason.ApplicationExit);
         return true;
@@ -2117,6 +2393,10 @@ public sealed partial class MainPage : Page, IDisposable
         _cameraSettingsSaveCancellation?.Dispose();
         _editorStateSaveCancellation?.Cancel();
         _editorStateSaveCancellation?.Dispose();
+        _editorPreviewCancellation?.Cancel();
+        _editorPreviewCancellation?.Dispose();
+        _projectOpenCancellation?.Cancel();
+        _projectOpenCancellation?.Dispose();
         _recordingUiTimer.Stop();
         _recordingUiTimer.Tick -= OnRecordingUiTimerTick;
         _recorderState.StateChanged -= OnRecorderStateChanged;

@@ -377,7 +377,10 @@ public static class FfmpegRenderPlanExporter
         string consolidationRoot = Path.Combine(
             plan.ProjectPath,
             "temp",
-            $"export-{Guid.NewGuid():N}");
+            plan.IsPreview
+                ? $"preview-export-" +
+                  $"{Path.GetFileName(plan.PreviewScratchId ?? Guid.NewGuid().ToString("N"))}"
+                : $"export-{Guid.NewGuid():N}");
         string temporaryOutputPath = Path.Combine(
             outputDirectory,
             $".{Path.GetFileNameWithoutExtension(fullOutputPath)}-{Guid.NewGuid():N}.partial.mp4");

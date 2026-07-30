@@ -44,7 +44,15 @@ public static class MediaWorkerExportClient
 
             Task<string> output = worker.StandardOutput.ReadToEndAsync(cancellationToken);
             Task<string> error = worker.StandardError.ReadToEndAsync(cancellationToken);
-            await worker.WaitForExitAsync(cancellationToken);
+            try
+            {
+                await worker.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                await TerminateWorkerAsync(worker).ConfigureAwait(false);
+                throw;
+            }
             string json = await output;
             string standardError = await error;
             RenderPlanExportResult? result =
@@ -72,6 +80,29 @@ public static class MediaWorkerExportClient
                 false,
                 outputPath,
                 $"The media worker returned invalid JSON: {exception.Message}");
+        }
+    }
+
+    private static async Task TerminateWorkerAsync(Process worker)
+    {
+        try
+        {
+            if (!worker.HasExited)
+            {
+                worker.Kill(entireProcessTree: true);
+                await worker.WaitForExitAsync()
+                    .WaitAsync(TimeSpan.FromSeconds(5))
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (Win32Exception)
+        {
+        }
+        catch (TimeoutException)
+        {
         }
     }
 }
