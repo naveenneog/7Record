@@ -132,6 +132,7 @@ The accepted stack is C#/.NET 10 + WinUI 3, Windows.Graphics.Capture/Direct3D 11
 - `packages/7record-cli` implements the secure `npx 7record` flow. Publishing is blocked only on provisioning and pinning the production MSIX signing certificate thumbprint.
 - Camera Studio now controls native Windows Studio Effects person-aware Standard/Portrait blur when available. It verifies applied flags, preserves concurrent Windows changes, restores complete prior flags, fails closed for privacy, and falls back to Off on unsupported cameras.
 - Projects now persist microphone/system-audio mute and gain controls; FFmpeg export preserves relative two-track balance and applies single-track gain after loudness normalization.
+- Projects now persist synchronized non-destructive clip slices supporting trim, split, delete, reorder, undo, and redo; automation/captions are remapped and audio repairs are applied before shared clip edits.
 - Verified commands:
   - `dotnet build SevenRecord.slnx --configuration Debug`
   - `dotnet test SevenRecord.slnx --configuration Debug --no-build`

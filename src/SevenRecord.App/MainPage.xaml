@@ -387,6 +387,63 @@
                                             Text="Ready automatically; adjust only what you need." />
                                     </StackPanel>
 
+                                    <StackPanel
+                                        x:Name="ClipEditorPanel"
+                                        Spacing="10"
+                                        Visibility="Collapsed">
+                                        <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Clip sequence" />
+                                        <ComboBox
+                                            x:Name="ClipSliceSelectorComboBox"
+                                            Header="Selected clip"
+                                            SelectionChanged="OnClipSliceSelectionChanged" />
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <NumberBox
+                                                x:Name="ClipTrimStartNumberBox"
+                                                Header="Source start seconds"
+                                                Minimum="0"
+                                                SmallChange="0.1" />
+                                            <NumberBox
+                                                x:Name="ClipTrimEndNumberBox"
+                                                Grid.Column="1"
+                                                Header="Source end seconds"
+                                                Minimum="0"
+                                                SmallChange="0.1" />
+                                        </Grid>
+                                        <NumberBox
+                                            x:Name="ClipSplitNumberBox"
+                                            Header="Split at source seconds"
+                                            Minimum="0"
+                                            SmallChange="0.1" />
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Click="OnApplyClipTrimClicked" Content="Apply trim" />
+                                            <Button Click="OnSplitClipClicked" Content="Split" />
+                                            <Button Click="OnDeleteClipClicked" Content="Delete" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button Click="OnMoveClipEarlierClicked" Content="Move earlier" />
+                                            <Button Click="OnMoveClipLaterClicked" Content="Move later" />
+                                            <Button
+                                                x:Name="UndoClipEditButton"
+                                                Click="OnUndoClipEditClicked"
+                                                Content="Undo"
+                                                IsEnabled="False" />
+                                            <Button
+                                                x:Name="RedoClipEditButton"
+                                                Click="OnRedoClipEditClicked"
+                                                Content="Redo"
+                                                IsEnabled="False" />
+                                        </StackPanel>
+                                        <TextBlock
+                                            x:Name="ClipEditStatusText"
+                                            AutomationProperties.LiveSetting="Polite"
+                                            Style="{StaticResource MetaTextStyle}"
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+
                                     <Grid ColumnSpacing="12">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="32" />

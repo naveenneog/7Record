@@ -57,6 +57,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Windows Studio effect tests validate native driver flags and ABI layout; full build/tests and UIA pass with zero warnings/errors.
 - Current redirected camera hardware does not advertise Studio blur and intermittently withheld preview frames; unsupported hardware remains safely Off with explicit status.
 - Audio mixer release suite passed with zero warnings/errors; a real single-track fixture measured an exact +6.0 dB exported gain delta.
+- Clip-editor release suite passed with zero warnings/errors; a real edit rendered three seconds from a later green segment followed by two seconds from an earlier blue segment with synchronized audio.
 - Redirected camera sources were enumerated but delivered no frames during final camera-studio hardware validation; device acceptance must be rerun outside the current Remote Desktop state.
 
 ### Added
@@ -75,6 +76,10 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added persistent microphone and system-audio mute/gain controls to the project editor.
 - Added audio-mix settings to editor state and render plans with legacy-state defaults.
 - Applied relative per-track gain before two-track mixing and post-normalization gain for single-track exports.
+- Added non-destructive synchronized clip trim, split, delete, reorder, undo, and redo controls.
+- Added atomic `clip-edits.json` persistence with immutable source ranges shared by every media track.
+- Remapped visual automation and captions into edited output time while applying audio repair before clip edits.
+- Added FFmpeg trim/reorder filter graphs that apply the same edit sequence to screen, camera, microphone, and system audio.
 
 ## 2026-07-26
 

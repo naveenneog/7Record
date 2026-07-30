@@ -69,6 +69,7 @@ public sealed partial class MainPage : Page, IDisposable
     private CancellationTokenSource? _cameraSettingsSaveCancellation;
     private CancellationTokenSource? _editorStateSaveCancellation;
     private readonly SemaphoreSlim _editorStateSaveGate = new(1, 1);
+    private readonly SemaphoreSlim _clipEditGate = new(1, 1);
     private bool _cameraOverlayDragging;
     private bool _cameraEnabled = true;
     private bool _disposed;
@@ -104,6 +105,7 @@ public sealed partial class MainPage : Page, IDisposable
     private MediaPlaybackList? _projectPlaybackList;
     private TimelineDocument? _currentTimeline;
     private CaptionEditSession? _captionEditSession;
+    private TimelineEditSession? _timelineEditSession;
     private string? _latestPostProcessingProject;
     private Task? _stopCaptureTask;
     private Task<bool>? _shutdownTask;
@@ -1033,11 +1035,18 @@ public sealed partial class MainPage : Page, IDisposable
             TimelineDocument timeline = await ProjectTimelineLoader.LoadAsync(projectPath);
             CaptionEditSession? captionSession =
                 await LoadCaptionEditSessionAsync(projectPath, timeline.Duration);
+            TimelineEditDocument editDocument =
+                await TimelineEditStore.LoadAsync(
+                    projectPath,
+                    timeline.Duration);
             EditorProjectStateLoadResult editorState =
                 await EditorProjectStateStore.LoadAsync(projectPath);
 
             _currentTimeline = timeline;
             _captionEditSession = captionSession;
+            _timelineEditSession = new TimelineEditSession(
+                editDocument,
+                timeline.Duration);
             _audioMix = editorState.State.AudioMix.Constrain();
             UpdateAudioMixControls();
             HashSet<string> validAutomationIds = timeline.Automation
@@ -1086,6 +1095,7 @@ public sealed partial class MainPage : Page, IDisposable
             }
 
             PopulateCaptionEditor();
+            PopulateClipEditor();
             UpdateRenderPlanSummary();
             if (!string.IsNullOrWhiteSpace(editorState.Warning))
             {
@@ -1116,6 +1126,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         _currentTimeline = null;
         _captionEditSession = null;
+        _timelineEditSession = null;
         _disabledAutomation.Clear();
         _audioMix = ProjectAudioMixSettings.Default;
         UpdateAudioMixControls();
@@ -1127,6 +1138,7 @@ public sealed partial class MainPage : Page, IDisposable
         TimelineItemsList.Items.Clear();
         CaptionSelectorComboBox.Items.Clear();
         CaptionEditorPanel.Visibility = Visibility.Collapsed;
+        ClipEditorPanel.Visibility = Visibility.Collapsed;
         OpenRecordingExternallyButton.IsEnabled = false;
         OpenProjectFolderButton.IsEnabled = false;
         SetProjectActionsEnabled(false);
@@ -1142,6 +1154,7 @@ public sealed partial class MainPage : Page, IDisposable
         MicrophoneMuteToggle.IsEnabled = enabled;
         SystemAudioGainSlider.IsEnabled = enabled;
         SystemAudioMuteToggle.IsEnabled = enabled;
+        ClipSliceSelectorComboBox.IsEnabled = enabled;
     }
 
     private async Task PersistEditorStateAsync()
@@ -1259,6 +1272,232 @@ public sealed partial class MainPage : Page, IDisposable
         mix.IsMuted
             ? "muted"
             : $"{mix.GainDecibels:+0.0;-0.0;0.0} dB";
+
+    private void PopulateClipEditor(string? selectedId = null)
+    {
+        ClipSliceSelectorComboBox.Items.Clear();
+        if (_timelineEditSession is null ||
+            _timelineEditSession.Current.Slices.Count == 0)
+        {
+            ClipEditorPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        foreach ((TimelineEditSlice slice, int index) in
+                 _timelineEditSession.Current.Slices.Select(
+                     (slice, index) => (slice, index)))
+        {
+            ClipSliceSelectorComboBox.Items.Add(
+                new ComboBoxItem
+                {
+                    Content =
+                        $"Clip {index + 1}: " +
+                        $"{slice.SourceRange.Start:hh\\:mm\\:ss\\.fff} - " +
+                        $"{slice.SourceRange.End:hh\\:mm\\:ss\\.fff}",
+                    Tag = slice.Id,
+                });
+        }
+        int selectedIndex = selectedId is null
+            ? 0
+            : _timelineEditSession.Current.Slices
+                .Select((slice, index) => (slice, index))
+                .FirstOrDefault(item => item.slice.Id == selectedId)
+                .index;
+        ClipSliceSelectorComboBox.SelectedIndex = Math.Clamp(
+            selectedIndex,
+            0,
+            ClipSliceSelectorComboBox.Items.Count - 1);
+        ClipEditorPanel.Visibility = Visibility.Visible;
+        UndoClipEditButton.IsEnabled =
+            _timelineEditSession.CanUndo;
+        RedoClipEditButton.IsEnabled =
+            _timelineEditSession.CanRedo;
+        ClipEditStatusText.Text =
+            $"{_timelineEditSession.Current.Slices.Count} clip(s), " +
+            $"{_timelineEditSession.Current.OutputDuration:hh\\:mm\\:ss\\.fff} output before automatic speed-ups. " +
+            "Source media remains unchanged.";
+    }
+
+    private void OnClipSliceSelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        TimelineEditSlice? slice = SelectedClipSlice();
+        if (slice is null)
+        {
+            return;
+        }
+        ClipTrimStartNumberBox.Value =
+            slice.SourceRange.Start.TotalSeconds;
+        ClipTrimEndNumberBox.Value =
+            slice.SourceRange.End.TotalSeconds;
+        ClipSplitNumberBox.Value =
+            slice.SourceRange.Start.TotalSeconds +
+            slice.SourceRange.Duration.TotalSeconds / 2;
+    }
+
+    private async void OnApplyClipTrimClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        TimelineEditSlice? slice = SelectedClipSlice();
+        if (slice is null || _timelineEditSession is null)
+        {
+            return;
+        }
+        await ExecuteClipEditAsync(
+            () => _timelineEditSession.Trim(
+                slice.Id,
+                TimeSpan.FromSeconds(ClipTrimStartNumberBox.Value),
+                TimeSpan.FromSeconds(ClipTrimEndNumberBox.Value)),
+            _timelineEditSession.RollbackLastChange,
+            slice.Id);
+    }
+
+    private async void OnSplitClipClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        TimelineEditSlice? slice = SelectedClipSlice();
+        if (slice is null || _timelineEditSession is null)
+        {
+            return;
+        }
+        await ExecuteClipEditAsync(
+            () => _timelineEditSession.Split(
+                slice.Id,
+                TimeSpan.FromSeconds(ClipSplitNumberBox.Value)),
+            _timelineEditSession.RollbackLastChange);
+    }
+
+    private async void OnDeleteClipClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        TimelineEditSlice? slice = SelectedClipSlice();
+        if (slice is null || _timelineEditSession is null)
+        {
+            return;
+        }
+        await ExecuteClipEditAsync(
+            () => _timelineEditSession.Delete(slice.Id),
+            _timelineEditSession.RollbackLastChange);
+    }
+
+    private async void OnMoveClipEarlierClicked(
+        object sender,
+        RoutedEventArgs e) =>
+        await MoveSelectedClipAsync(-1);
+
+    private async void OnMoveClipLaterClicked(
+        object sender,
+        RoutedEventArgs e) =>
+        await MoveSelectedClipAsync(1);
+
+    private async Task MoveSelectedClipAsync(int delta)
+    {
+        TimelineEditSlice? slice = SelectedClipSlice();
+        if (slice is null || _timelineEditSession is null)
+        {
+            return;
+        }
+        await ExecuteClipEditAsync(
+            () => _timelineEditSession.Move(slice.Id, delta),
+            _timelineEditSession.RollbackLastChange,
+            slice.Id);
+    }
+
+    private async void OnUndoClipEditClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_timelineEditSession is not null)
+        {
+            await ExecuteClipEditAsync(
+                () => _timelineEditSession.Undo(),
+                _timelineEditSession.Redo);
+        }
+    }
+
+    private async void OnRedoClipEditClicked(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_timelineEditSession is not null)
+        {
+            await ExecuteClipEditAsync(
+                () => _timelineEditSession.Redo(),
+                _timelineEditSession.Undo);
+        }
+    }
+
+    private async Task ExecuteClipEditAsync(
+        Action edit,
+        Func<bool> rollback,
+        string? selectedId = null)
+    {
+        await _clipEditGate.WaitAsync();
+        ClipEditorPanel.IsHitTestVisible = false;
+        ClipEditorPanel.Opacity = 0.7;
+        bool editCompleted = false;
+        TimelineEditDocument? before =
+            _timelineEditSession?.Current;
+        try
+        {
+            edit();
+            editCompleted =
+                !ReferenceEquals(
+                    before,
+                    _timelineEditSession?.Current);
+            await PersistClipEditsAsync(selectedId);
+        }
+        catch (Exception exception)
+        {
+            if (editCompleted)
+            {
+                _ = rollback();
+            }
+            PopulateClipEditor(selectedId);
+            ClipEditStatusText.Text =
+                $"Clip edit was not saved: {exception.Message}";
+        }
+        finally
+        {
+            ClipEditorPanel.IsHitTestVisible = true;
+            ClipEditorPanel.Opacity = 1;
+            _clipEditGate.Release();
+        }
+    }
+
+    private TimelineEditSlice? SelectedClipSlice()
+    {
+        if (_timelineEditSession is null ||
+            ClipSliceSelectorComboBox.SelectedItem is not
+                ComboBoxItem { Tag: string sliceId })
+        {
+            return null;
+        }
+        return _timelineEditSession.Current.Slices
+            .FirstOrDefault(slice => slice.Id == sliceId);
+    }
+
+    private async Task PersistClipEditsAsync(
+        string? selectedId = null)
+    {
+        if (_timelineEditSession is null ||
+            _currentTimeline is null)
+        {
+            return;
+        }
+        await TimelineEditStore.SaveAsync(
+            _currentTimeline.ProjectPath,
+            _timelineEditSession.Current,
+            _currentTimeline.Duration);
+        PopulateClipEditor(selectedId);
+        UpdateRenderPlanSummary();
+        ProjectPreviewStatusText.Text =
+            "Clip edits are saved and will be applied to export. Source media remains unchanged.";
+    }
 
     private void ScheduleEditorStateSave()
     {
@@ -1690,7 +1929,7 @@ public sealed partial class MainPage : Page, IDisposable
         RenderPlan plan = CurrentRenderPlan();
         RenderPlanSummaryText.Text =
             $"{plan.Canvas.Width} × {plan.Canvas.Height}; " +
-            $"{plan.Clips.Count} source clips; " +
+            $"{plan.EditSlices.Count} edited clip(s); " +
             $"{plan.Automation.Count} enabled automation events; " +
             $"{_currentTimeline.Captions.Count} captions.";
     }
@@ -1805,7 +2044,8 @@ public sealed partial class MainPage : Page, IDisposable
                 _ => ExportAspectRatioPreset.Landscape1080p,
             },
             _disabledAutomation,
-            _audioMix);
+            _audioMix,
+            _timelineEditSession?.Current);
 
     private async Task<string> SaveRenderPlanAsync()
     {

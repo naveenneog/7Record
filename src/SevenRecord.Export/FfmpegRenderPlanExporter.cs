@@ -79,9 +79,13 @@ public static class FfmpegRenderPlanExporter
         int[] cameraIndices = InputIndices(inputs, cameraClips);
         int[] microphoneIndices = InputIndices(inputs, microphoneClips);
         int[] systemAudioIndices = InputIndices(inputs, systemAudioClips);
-        TimeSpan sourceDuration = plan.Clips.Count == 0
-            ? plan.Duration
-            : plan.Clips.Max(clip => clip.Range.End);
+        TimeSpan sourceDuration = plan.EditSlices.Count > 0
+            ? TimeSpan.FromTicks(
+                plan.EditSlices.Sum(
+                    slice => slice.SourceRange.Duration.Ticks))
+            : plan.Clips.Count == 0
+                ? plan.Duration
+                : plan.Clips.Max(clip => clip.Range.End);
         TimelineAutomationEvent[] loadingEvents = plan.Automation
             .Where(item => item.Kind == "LoadingSpeed")
             .OrderBy(item => item.Range.Start)
@@ -92,6 +96,12 @@ public static class FfmpegRenderPlanExporter
             screenClips,
             screenIndices,
             "screenSource",
+            isVideo: true);
+        screenSource = AddTimelineEditFilter(
+            filters,
+            screenSource,
+            plan.EditSlices,
+            "screenEdited",
             isVideo: true);
         filters.Add(
             $"[{screenSource}]scale={plan.Canvas.Width}:{plan.Canvas.Height}:" +
@@ -147,6 +157,12 @@ public static class FfmpegRenderPlanExporter
                 cameraClips,
                 cameraIndices,
                 "cameraSource",
+                isVideo: true);
+            cameraSource = AddTimelineEditFilter(
+                filters,
+                cameraSource,
+                plan.EditSlices,
+                "cameraEdited",
                 isVideo: true);
             double widthRatio = AutomationValue(
                 presenterLayout,
@@ -647,6 +663,12 @@ public static class FfmpegRenderPlanExporter
             rate == 1
                 ? $"[{preparedLabel}]anull[{rateLabel}]"
                 : $"[{preparedLabel}]atempo={rate.ToString("F6", CultureInfo.InvariantCulture)}[{rateLabel}]");
+        rateLabel = AddTimelineEditFilter(
+            filters,
+            rateLabel,
+            plan.EditSlices,
+            $"{label}Edited",
+            isVideo: false);
         SevenRecord.Domain.Audio.AudioMixSettings mix = track is
             TimelineTrackKind.Microphone
             ? plan.AudioMix.Microphone
@@ -721,6 +743,53 @@ public static class FfmpegRenderPlanExporter
             $"concat=n={parts.Count}:v={(isVideo ? 1 : 0)}:" +
             $"a={(isVideo ? 0 : 1)}[{label}]");
         return label;
+    }
+
+    private static string AddTimelineEditFilter(
+        List<string> filters,
+        string inputLabel,
+        IReadOnlyList<TimelineEditSlice> editSlices,
+        string outputLabel,
+        bool isVideo)
+    {
+        if (editSlices.Count == 0)
+        {
+            return inputLabel;
+        }
+
+        List<string> parts = [];
+        string[] inputs;
+        if (editSlices.Count == 1)
+        {
+            inputs = [inputLabel];
+        }
+        else
+        {
+            inputs = Enumerable.Range(0, editSlices.Count)
+                .Select(index => $"{outputLabel}Source{index}")
+                .ToArray();
+            filters.Add(
+                $"[{inputLabel}]{(isVideo ? "split" : "asplit")}=" +
+                $"{editSlices.Count}" +
+                string.Concat(inputs.Select(item => $"[{item}]")));
+        }
+        for (int index = 0; index < editSlices.Count; index++)
+        {
+            TimelineEditSlice slice = editSlices[index];
+            string part = $"{outputLabel}Part{index}";
+            filters.Add(
+                $"[{inputs[index]}]{(isVideo ? "trim" : "atrim")}=" +
+                $"start={Seconds(slice.SourceRange.Start.TotalSeconds)}:" +
+                $"end={Seconds(slice.SourceRange.End.TotalSeconds)}," +
+                $"{(isVideo ? "setpts" : "asetpts")}=PTS-STARTPTS" +
+                $"[{part}]");
+            parts.Add($"[{part}]");
+        }
+        filters.Add(
+            string.Concat(parts) +
+            $"concat=n={parts.Count}:v={(isVideo ? 1 : 0)}:" +
+            $"a={(isVideo ? 0 : 1)}[{outputLabel}]");
+        return outputLabel;
     }
 
     private static void ValidateContiguous(

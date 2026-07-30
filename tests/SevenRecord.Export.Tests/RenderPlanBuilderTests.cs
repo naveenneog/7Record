@@ -450,6 +450,120 @@ public sealed class RenderPlanBuilderTests
             "volume=6.00dB[mixed]");
     }
 
+    [TestMethod]
+    public void ClipEditsTrimReorderAndRemapAutomation()
+    {
+        TimelineAutomationEvent zoom = new(
+            "zoom",
+            "CursorZoom",
+            TimelineTrackKind.Screen,
+            TimelineRange.FromStartAndDuration(
+                TimeSpan.FromSeconds(5.5),
+                TimeSpan.FromSeconds(1)),
+            "zoom",
+            true);
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(10),
+            [ClipAt(
+                "screen",
+                TimelineTrackKind.Screen,
+                "screen.mp4",
+                TimeSpan.Zero,
+                TimeSpan.FromSeconds(10))],
+            [zoom]);
+        TimelineEditDocument edits = new(
+            1,
+            [
+                new TimelineEditSlice(
+                    "later",
+                    new TimelineRange(
+                        TimeSpan.FromSeconds(5),
+                        TimeSpan.FromSeconds(8))),
+                new TimelineEditSlice(
+                    "earlier",
+                    new TimelineRange(
+                        TimeSpan.Zero,
+                        TimeSpan.FromSeconds(2)))
+            ]);
+
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p,
+            editDocument: edits);
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4").Arguments);
+
+        Assert.AreEqual(TimeSpan.FromSeconds(5), plan.Duration);
+        Assert.AreEqual(
+            TimeSpan.FromMilliseconds(500),
+            plan.Automation.Single().Range.Start);
+        StringAssert.Contains(command, "trim=start=5.000000:end=8.000000");
+        StringAssert.Contains(command, "trim=start=0.000000:end=2.000000");
+        StringAssert.Contains(command, "concat=n=2:v=1:a=0[screenEdited]");
+    }
+
+    [TestMethod]
+    public void AudioRepairRunsBeforeClipEditing()
+    {
+        TimelineAutomationEvent gap = new(
+            "gap",
+            nameof(SevenRecord.Domain.Audio.AudioRepairEventKind.InsertSilence),
+            TimelineTrackKind.Microphone,
+            TimelineRange.FromStartAndDuration(
+                TimeSpan.FromSeconds(4),
+                TimeSpan.FromMilliseconds(200)),
+            "Insert 200 ms silence",
+            true);
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(10),
+            [
+                ClipAt(
+                    "screen",
+                    TimelineTrackKind.Screen,
+                    "screen.mp4",
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(10)),
+                ClipAt(
+                    "mic",
+                    TimelineTrackKind.Microphone,
+                    "mic.wav",
+                    TimeSpan.Zero,
+                    TimeSpan.FromSeconds(10))
+            ],
+            [gap]);
+        TimelineEditDocument edits = new(
+            1,
+            [
+                new TimelineEditSlice(
+                    "keep",
+                    new TimelineRange(
+                        TimeSpan.FromSeconds(5),
+                        TimeSpan.FromSeconds(8)))
+            ]);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p,
+            editDocument: edits);
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4").Arguments);
+
+        Assert.AreEqual(gap.Range, plan.Automation.Single().Range);
+        StringAssert.Contains(command, "anullsrc");
+        int repairIndex =
+            command.IndexOf("anullsrc", StringComparison.Ordinal);
+        StringAssert.Contains(
+            command[repairIndex..],
+            "atrim=start=5.000000:end=8.000000");
+    }
+
     private static TimelineAutomationEvent Automation(string id) =>
         new(
             id,
