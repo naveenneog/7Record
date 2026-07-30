@@ -1,5 +1,7 @@
 namespace SevenRecord.Editor.Tests;
 
+using SevenRecord.Domain.Audio;
+
 [TestClass]
 public sealed class EditorProjectStateStoreTests
 {
@@ -15,7 +17,12 @@ public sealed class EditorProjectStateStoreTests
             EditorProjectState state = new(
                 1,
                 2,
-                ["zoom-2", "zoom-1", "zoom-1"]);
+                ["zoom-2", "zoom-1", "zoom-1"])
+            {
+                AudioMix = new ProjectAudioMixSettings(
+                    new AudioMixSettings(3, false),
+                    new AudioMixSettings(-6, true)),
+            };
 
             await EditorProjectStateStore.SaveAsync(project, state);
             EditorProjectStateLoadResult loaded =
@@ -23,6 +30,11 @@ public sealed class EditorProjectStateStoreTests
 
             Assert.IsNull(loaded.Warning);
             Assert.AreEqual(2, loaded.State.RenderPresetIndex);
+            Assert.AreEqual(
+                3d,
+                loaded.State.AudioMix.Microphone.GainDecibels);
+            Assert.IsTrue(
+                loaded.State.AudioMix.SystemAudio.IsMuted);
             CollectionAssert.AreEquivalent(
                 ExpectedDisabledAutomation,
                 loaded.State.DisabledAutomationIds.ToArray());

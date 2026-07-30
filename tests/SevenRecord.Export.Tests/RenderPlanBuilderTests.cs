@@ -390,6 +390,66 @@ public sealed class RenderPlanBuilderTests
                 "C:\\output\\video.mp4"));
     }
 
+    [TestMethod]
+    public void AudioMixAppliesGainAndMute()
+    {
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(5),
+            [
+                Clip("screen", TimelineTrackKind.Screen, "screen.mp4"),
+                Clip("mic", TimelineTrackKind.Microphone, "mic.wav"),
+                Clip("system", TimelineTrackKind.SystemAudio, "system.wav")
+            ],
+            []);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p,
+            audioMix: new SevenRecord.Domain.Audio.ProjectAudioMixSettings(
+                new SevenRecord.Domain.Audio.AudioMixSettings(3.5, false),
+                new SevenRecord.Domain.Audio.AudioMixSettings(0, true)));
+
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4").Arguments);
+
+        StringAssert.Contains(command, "volume=3.50dB[microphoneMixed]");
+        StringAssert.Contains(command, "volume=0[systemMixed]");
+    }
+
+    [TestMethod]
+    public void SingleTrackGainIsAppliedAfterLoudnessNormalization()
+    {
+        TimelineDocument timeline = new(
+            "C:\\project",
+            TimeSpan.FromSeconds(5),
+            [
+                Clip("screen", TimelineTrackKind.Screen, "screen.mp4"),
+                Clip("mic", TimelineTrackKind.Microphone, "mic.wav")
+            ],
+            []);
+        RenderPlan plan = RenderPlanBuilder.Build(
+            timeline,
+            ExportAspectRatioPreset.Landscape1080p,
+            audioMix: new SevenRecord.Domain.Audio.ProjectAudioMixSettings(
+                new SevenRecord.Domain.Audio.AudioMixSettings(6, false),
+                SevenRecord.Domain.Audio.AudioMixSettings.Default));
+        string command = string.Join(
+            " ",
+            FfmpegRenderPlanExporter.CreateCommand(
+                plan,
+                "C:\\output\\video.mp4").Arguments);
+
+        StringAssert.Contains(command, "loudnorm");
+        int normalizationIndex =
+            command.IndexOf("loudnorm", StringComparison.Ordinal);
+        StringAssert.Contains(
+            command[normalizationIndex..],
+            "volume=6.00dB[mixed]");
+    }
+
     private static TimelineAutomationEvent Automation(string id) =>
         new(
             id,

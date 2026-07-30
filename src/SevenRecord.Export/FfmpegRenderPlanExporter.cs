@@ -259,10 +259,10 @@ public static class FfmpegRenderPlanExporter
             sourceDuration,
             isVideo: true);
 
-        List<string> audioLabels = [];
+        List<AudioFilterOutput> audioOutputs = [];
         AddAudioFilter(
             filters,
-            audioLabels,
+            audioOutputs,
             plan,
             microphoneClips,
             microphoneIndices,
@@ -270,23 +270,37 @@ public static class FfmpegRenderPlanExporter
             "microphone");
         AddAudioFilter(
             filters,
-            audioLabels,
+            audioOutputs,
             plan,
             systemAudioClips,
             systemAudioIndices,
             TimelineTrackKind.SystemAudio,
             "system");
-        if (audioLabels.Count == 2)
+        if (audioOutputs.Count == 2)
         {
+            string microphoneMix = AddVolumeFilter(
+                filters,
+                audioOutputs[0],
+                "microphoneMixed");
+            string systemMix = AddVolumeFilter(
+                filters,
+                audioOutputs[1],
+                "systemMixed");
             filters.Add(
-                $"{audioLabels[0]}{audioLabels[1]}" +
+                $"[{microphoneMix}][{systemMix}]" +
                 "amix=inputs=2:duration=longest:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11[mixed]");
         }
-        else if (audioLabels.Count == 1)
+        else if (audioOutputs.Count == 1)
         {
-            filters.Add($"{audioLabels[0]}loudnorm=I=-16:TP=-1.5:LRA=11[mixed]");
+            filters.Add(
+                $"[{audioOutputs[0].Label}]" +
+                "loudnorm=I=-16:TP=-1.5:LRA=11[singleNormalized]");
+            _ = AddVolumeFilter(
+                filters,
+                audioOutputs[0] with { Label = "singleNormalized" },
+                "mixed");
         }
-        if (audioLabels.Count > 0)
+        if (audioOutputs.Count > 0)
         {
             AddSpeedFilters(
                 filters,
@@ -301,7 +315,7 @@ public static class FfmpegRenderPlanExporter
         arguments.Add(string.Join(";", filters));
         arguments.Add("-map");
         arguments.Add("[video]");
-        if (audioLabels.Count > 0)
+        if (audioOutputs.Count > 0)
         {
             arguments.Add("-map");
             arguments.Add("[audio]");
@@ -314,7 +328,7 @@ public static class FfmpegRenderPlanExporter
             "-pix_fmt", "yuv420p",
             "-r", "30"
         ]);
-        if (audioLabels.Count > 0)
+        if (audioOutputs.Count > 0)
         {
             arguments.AddRange(["-c:a", "aac", "-b:a", "192k"]);
         }
@@ -533,7 +547,7 @@ public static class FfmpegRenderPlanExporter
 
     private static void AddAudioFilter(
         List<string> filters,
-        List<string> labels,
+        List<AudioFilterOutput> outputs,
         RenderPlan plan,
         TimelineClip[] clips,
         int[] inputIndices,
@@ -628,12 +642,35 @@ public static class FfmpegRenderPlanExporter
                 $"{string.Concat(concatLabels)}concat=n={concatLabels.Count}:v=0:a=1[{preparedLabel}]");
         }
 
+        string rateLabel = $"{label}rate";
         filters.Add(
             rate == 1
-                ? $"[{preparedLabel}]anull[{label}]"
-                : $"[{preparedLabel}]atempo={rate.ToString("F6", CultureInfo.InvariantCulture)}[{label}]");
-        labels.Add($"[{label}]");
+                ? $"[{preparedLabel}]anull[{rateLabel}]"
+                : $"[{preparedLabel}]atempo={rate.ToString("F6", CultureInfo.InvariantCulture)}[{rateLabel}]");
+        SevenRecord.Domain.Audio.AudioMixSettings mix = track is
+            TimelineTrackKind.Microphone
+            ? plan.AudioMix.Microphone
+            : plan.AudioMix.SystemAudio;
+        outputs.Add(new AudioFilterOutput(rateLabel, mix));
     }
+
+    private static string AddVolumeFilter(
+        List<string> filters,
+        AudioFilterOutput output,
+        string outputLabel)
+    {
+        filters.Add(
+            output.Mix.IsMuted
+                ? $"[{output.Label}]volume=0[{outputLabel}]"
+                : $"[{output.Label}]volume=" +
+                  $"{output.Mix.GainDecibels.ToString("F2", CultureInfo.InvariantCulture)}dB" +
+                  $"[{outputLabel}]");
+        return outputLabel;
+    }
+
+    private sealed record AudioFilterOutput(
+        string Label,
+        SevenRecord.Domain.Audio.AudioMixSettings Mix);
 
     private static string Seconds(double value) =>
         value.ToString("F6", CultureInfo.InvariantCulture);

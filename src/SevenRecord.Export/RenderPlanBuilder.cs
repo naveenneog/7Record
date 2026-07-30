@@ -1,4 +1,5 @@
 using SevenRecord.Domain.Timeline;
+using SevenRecord.Domain.Audio;
 
 namespace SevenRecord.Export;
 
@@ -22,6 +23,9 @@ public sealed record RenderPlan(
     IReadOnlyList<TimelineAutomationEvent> Automation)
 {
     public IReadOnlyList<TimelineCaption> Captions { get; init; } = [];
+
+    public ProjectAudioMixSettings AudioMix { get; init; } =
+        ProjectAudioMixSettings.Default;
 }
 
 public static class RenderPlanBuilder
@@ -29,7 +33,8 @@ public static class RenderPlanBuilder
     public static RenderPlan Build(
         TimelineDocument timeline,
         ExportAspectRatioPreset preset,
-        IReadOnlySet<string>? disabledAutomation = null)
+        IReadOnlySet<string>? disabledAutomation = null,
+        ProjectAudioMixSettings? audioMix = null)
     {
         ArgumentNullException.ThrowIfNull(timeline);
         disabledAutomation ??= new HashSet<string>(StringComparer.Ordinal);
@@ -58,6 +63,8 @@ public static class RenderPlanBuilder
             automation)
         {
             Captions = timeline.Captions.ToArray(),
+            AudioMix =
+                (audioMix ?? ProjectAudioMixSettings.Default).Constrain(),
         };
     }
 

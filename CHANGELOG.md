@@ -56,6 +56,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - The npm installer intentionally fails closed until the production signing certificate thumbprint is provisioned and pinned.
 - Windows Studio effect tests validate native driver flags and ABI layout; full build/tests and UIA pass with zero warnings/errors.
 - Current redirected camera hardware does not advertise Studio blur and intermittently withheld preview frames; unsupported hardware remains safely Off with explicit status.
+- Audio mixer release suite passed with zero warnings/errors; a real single-track fixture measured an exact +6.0 dB exported gain delta.
 - Redirected camera sources were enumerated but delivered no frames during final camera-studio hardware validation; device acceptance must be rerun outside the current Remote Desktop state.
 
 ### Added
@@ -71,6 +72,9 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 - Added camera-effect capability discovery, shared-readonly compatibility fallback, exact driver SET readback, and full raw-state restoration.
 - Added fail-closed privacy behavior: requested blur cannot silently record unblurred frames, and recording cannot start after failed camera-state restoration.
 - Added serialized camera-effect transitions and an awaited window-close shutdown path so effect restoration completes before process exit.
+- Added persistent microphone and system-audio mute/gain controls to the project editor.
+- Added audio-mix settings to editor state and render plans with legacy-state defaults.
+- Applied relative per-track gain before two-track mixing and post-normalization gain for single-track exports.
 
 ## 2026-07-26
 

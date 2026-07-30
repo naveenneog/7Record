@@ -1,4 +1,5 @@
 using System.Text.Json;
+using SevenRecord.Domain.Audio;
 
 namespace SevenRecord.Editor;
 
@@ -8,6 +9,9 @@ public sealed record EditorProjectState(
     IReadOnlyList<string> DisabledAutomationIds)
 {
     public static EditorProjectState Default { get; } = new(1, 0, []);
+
+    public ProjectAudioMixSettings AudioMix { get; init; } =
+        ProjectAudioMixSettings.Default;
 }
 
 public sealed record EditorProjectStateLoadResult(
@@ -55,6 +59,9 @@ public static class EditorProjectStateStore
                         .Where(id => !string.IsNullOrWhiteSpace(id))
                         .Distinct(StringComparer.Ordinal)
                         .ToArray(),
+                    AudioMix =
+                        (state.AudioMix ??
+                         ProjectAudioMixSettings.Default).Constrain(),
                 },
                 null);
         }
@@ -74,7 +81,8 @@ public static class EditorProjectStateStore
         ArgumentException.ThrowIfNullOrWhiteSpace(projectPath);
         ArgumentNullException.ThrowIfNull(state);
         string path = Path.Combine(Path.GetFullPath(projectPath), FileName);
-        string temporaryPath = path + ".tmp";
+        string temporaryPath =
+            path + $".{Guid.NewGuid():N}.tmp";
         try
         {
             await File.WriteAllTextAsync(

@@ -811,6 +811,62 @@
                                         Content="Save plan" />
                                 </Grid>
 
+                                <StackPanel Spacing="10">
+                                    <TextBlock Style="{StaticResource SectionTitleStyle}" Text="Audio mix" />
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Style="{StaticResource StatusLabelStyle}" Text="Microphone gain" />
+                                            <Slider
+                                                x:Name="MicrophoneGainSlider"
+                                                AutomationProperties.Name="Microphone gain"
+                                                Minimum="-24"
+                                                Maximum="12"
+                                                StepFrequency="0.5"
+                                                ValueChanged="OnAudioMixChanged" />
+                                        </StackPanel>
+                                        <ToggleSwitch
+                                            x:Name="MicrophoneMuteToggle"
+                                            Grid.Column="1"
+                                            AutomationProperties.Name="Mute microphone"
+                                            OffContent="On"
+                                            OnContent="Muted"
+                                            Toggled="OnAudioMixChanged" />
+                                    </Grid>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Style="{StaticResource StatusLabelStyle}" Text="System audio gain" />
+                                            <Slider
+                                                x:Name="SystemAudioGainSlider"
+                                                AutomationProperties.Name="System audio gain"
+                                                Minimum="-24"
+                                                Maximum="12"
+                                                StepFrequency="0.5"
+                                                ValueChanged="OnAudioMixChanged" />
+                                        </StackPanel>
+                                        <ToggleSwitch
+                                            x:Name="SystemAudioMuteToggle"
+                                            Grid.Column="1"
+                                            AutomationProperties.Name="Mute system audio"
+                                            OffContent="On"
+                                            OnContent="Muted"
+                                            Toggled="OnAudioMixChanged" />
+                                    </Grid>
+                                    <TextBlock
+                                        x:Name="AudioMixStatusText"
+                                        AutomationProperties.LiveSetting="Polite"
+                                        Style="{StaticResource MetaTextStyle}"
+                                        Text="Microphone 0 dB; system audio 0 dB."
+                                        TextWrapping="Wrap" />
+                                </StackPanel>
+
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Button
                                         x:Name="ExportMp4Button"

@@ -19,6 +19,7 @@ using SevenRecord.Capture.Abstractions;
 using SevenRecord.Capture.Windows;
 using SevenRecord.Camera.Windows;
 using SevenRecord.Domain.Captions;
+using SevenRecord.Domain.Audio;
 using SevenRecord.Domain.Input;
 using SevenRecord.Domain.Projects;
 using SevenRecord.Domain.Timeline;
@@ -66,11 +67,16 @@ public sealed partial class MainPage : Page, IDisposable
     private CameraPreviewSession? _cameraPreviewSession;
     private CancellationTokenSource? _cameraPreviewStartupCancellation;
     private CancellationTokenSource? _cameraSettingsSaveCancellation;
+    private CancellationTokenSource? _editorStateSaveCancellation;
+    private readonly SemaphoreSlim _editorStateSaveGate = new(1, 1);
     private bool _cameraOverlayDragging;
     private bool _cameraEnabled = true;
     private bool _disposed;
     private bool _loadingProject;
     private bool _updatingCameraStudioControls;
+    private bool _updatingAudioMixer;
+    private ProjectAudioMixSettings _audioMix =
+        ProjectAudioMixSettings.Default;
     private readonly SemaphoreSlim _cameraEffectTransitionGate =
         new(1, 1);
     private bool _updatingCameraToggle;
@@ -1032,6 +1038,8 @@ public sealed partial class MainPage : Page, IDisposable
 
             _currentTimeline = timeline;
             _captionEditSession = captionSession;
+            _audioMix = editorState.State.AudioMix.Constrain();
+            UpdateAudioMixControls();
             HashSet<string> validAutomationIds = timeline.Automation
                 .Select(item => item.Id)
                 .ToHashSet(StringComparer.Ordinal);
@@ -1109,6 +1117,8 @@ public sealed partial class MainPage : Page, IDisposable
         _currentTimeline = null;
         _captionEditSession = null;
         _disabledAutomation.Clear();
+        _audioMix = ProjectAudioMixSettings.Default;
+        UpdateAudioMixControls();
         _currentPreviewPath = null;
         _projectPlaybackList = null;
         ProjectPreviewPlayer.Source = null;
@@ -1128,17 +1138,21 @@ public sealed partial class MainPage : Page, IDisposable
         SaveRenderPlanButton.IsEnabled = enabled;
         ExportMp4Button.IsEnabled = enabled;
         GenerateCaptionsButton.IsEnabled = enabled;
+        MicrophoneGainSlider.IsEnabled = enabled;
+        MicrophoneMuteToggle.IsEnabled = enabled;
+        SystemAudioGainSlider.IsEnabled = enabled;
+        SystemAudioMuteToggle.IsEnabled = enabled;
     }
 
     private async Task PersistEditorStateAsync()
     {
-        if (_loadingProject || _currentTimeline is null)
-        {
-            return;
-        }
-
+        await _editorStateSaveGate.WaitAsync();
         try
         {
+            if (_loadingProject || _currentTimeline is null)
+            {
+                return;
+            }
             await EditorProjectStateStore.SaveAsync(
                 _currentTimeline.ProjectPath,
                 new EditorProjectState(
@@ -1146,7 +1160,10 @@ public sealed partial class MainPage : Page, IDisposable
                     Math.Clamp(RenderPresetComboBox.SelectedIndex, 0, 2),
                     _disabledAutomation
                         .Order(StringComparer.Ordinal)
-                        .ToArray()));
+                        .ToArray())
+                {
+                    AudioMix = _audioMix.Constrain(),
+                });
         }
         catch (IOException exception)
         {
@@ -1157,6 +1174,10 @@ public sealed partial class MainPage : Page, IDisposable
         {
             RenderPlanSummaryText.Text =
                 $"Editor choices could not be saved: {exception.Message}";
+        }
+        finally
+        {
+            _editorStateSaveGate.Release();
         }
     }
 
@@ -1178,6 +1199,90 @@ public sealed partial class MainPage : Page, IDisposable
 
         UpdateRenderPlanSummary();
         await PersistEditorStateAsync();
+    }
+
+    private void OnAudioMixChanged(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_updatingAudioMixer ||
+            MicrophoneGainSlider is null ||
+            MicrophoneMuteToggle is null ||
+            SystemAudioGainSlider is null ||
+            SystemAudioMuteToggle is null)
+        {
+            return;
+        }
+
+        _audioMix = new ProjectAudioMixSettings(
+            new AudioMixSettings(
+                MicrophoneGainSlider.Value,
+                MicrophoneMuteToggle.IsOn),
+            new AudioMixSettings(
+                SystemAudioGainSlider.Value,
+                SystemAudioMuteToggle.IsOn))
+            .Constrain();
+        UpdateAudioMixStatus();
+        UpdateRenderPlanSummary();
+        ScheduleEditorStateSave();
+    }
+
+    private void UpdateAudioMixControls()
+    {
+        _updatingAudioMixer = true;
+        try
+        {
+            MicrophoneGainSlider.Value =
+                _audioMix.Microphone.GainDecibels;
+            MicrophoneMuteToggle.IsOn =
+                _audioMix.Microphone.IsMuted;
+            SystemAudioGainSlider.Value =
+                _audioMix.SystemAudio.GainDecibels;
+            SystemAudioMuteToggle.IsOn =
+                _audioMix.SystemAudio.IsMuted;
+        }
+        finally
+        {
+            _updatingAudioMixer = false;
+        }
+        UpdateAudioMixStatus();
+    }
+
+    private void UpdateAudioMixStatus()
+    {
+        AudioMixStatusText.Text =
+            $"Microphone {DescribeMix(_audioMix.Microphone)}; " +
+            $"system audio {DescribeMix(_audioMix.SystemAudio)}.";
+    }
+
+    private static string DescribeMix(AudioMixSettings mix) =>
+        mix.IsMuted
+            ? "muted"
+            : $"{mix.GainDecibels:+0.0;-0.0;0.0} dB";
+
+    private void ScheduleEditorStateSave()
+    {
+        _editorStateSaveCancellation?.Cancel();
+        _editorStateSaveCancellation?.Dispose();
+        CancellationTokenSource cancellation = new();
+        _editorStateSaveCancellation = cancellation;
+        _ = PersistEditorStateAfterDelayAsync(cancellation);
+    }
+
+    private async Task PersistEditorStateAfterDelayAsync(
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(250),
+                cancellation.Token);
+            await PersistEditorStateAsync();
+        }
+        catch (OperationCanceledException)
+            when (cancellation.IsCancellationRequested)
+        {
+        }
     }
 
     private void LoadProjectPreview(TimelineDocument timeline)
@@ -1699,7 +1804,8 @@ public sealed partial class MainPage : Page, IDisposable
                 2 => ExportAspectRatioPreset.Square1080p,
                 _ => ExportAspectRatioPreset.Landscape1080p,
             },
-            _disabledAutomation);
+            _disabledAutomation,
+            _audioMix);
 
     private async Task<string> SaveRenderPlanAsync()
     {
@@ -1733,6 +1839,8 @@ public sealed partial class MainPage : Page, IDisposable
     {
         _postProcessingCancellation.Cancel();
         _cameraSettingsSaveCancellation?.Cancel();
+        _editorStateSaveCancellation?.Cancel();
+        await PersistEditorStateAsync();
         try
         {
             await CameraStudioSettingsStore.SaveAsync(_cameraLayout);
@@ -1767,6 +1875,8 @@ public sealed partial class MainPage : Page, IDisposable
         _postProcessingCancellation.Cancel();
         _cameraSettingsSaveCancellation?.Cancel();
         _cameraSettingsSaveCancellation?.Dispose();
+        _editorStateSaveCancellation?.Cancel();
+        _editorStateSaveCancellation?.Dispose();
         _recordingUiTimer.Stop();
         _recordingUiTimer.Tick -= OnRecordingUiTimerTick;
         _recorderState.StateChanged -= OnRecorderStateChanged;
