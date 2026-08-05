@@ -27,6 +27,7 @@ using SevenRecord.Domain.Video;
 using SevenRecord.Editor;
 using SevenRecord.Export;
 using SevenRecord.Infrastructure;
+using SevenRecord.Infrastructure.Diagnostics;
 using SevenRecord.Input.Windows;
 using SevenRecord.Media;
 using SevenRecord.Media.Windows;
@@ -38,6 +39,12 @@ namespace SevenRecord.App;
 
 public sealed partial class MainPage : Page, IDisposable
 {
+    /// <summary>
+    /// Contains faults from `async void` handlers, which would otherwise be rethrown on
+    /// the UI thread and terminate the process along with any in-progress recording.
+    /// </summary>
+    private readonly FaultBarrier _faults;
+
     private static readonly TimeSpan AudioDriftWarningThreshold =
         TimeSpan.FromMilliseconds(40);
     private static readonly TimeSpan AudioMissingWarningThreshold =
@@ -121,6 +128,9 @@ public sealed partial class MainPage : Page, IDisposable
     public MainPage()
     {
         InitializeComponent();
+        _faults = new FaultBarrier(
+            (Application.Current as App)?.Diagnostics ?? new FileDiagnosticLog(),
+            ShowContainedFault);
         CameraOverlayCanvas.AddHandler(
             UIElement.PointerPressedEvent,
             new PointerEventHandler(OnCameraOverlayCanvasPointerPressed),
@@ -644,7 +654,9 @@ public sealed partial class MainPage : Page, IDisposable
     private async void OnCloseCameraStudioClicked(
         object sender,
         RoutedEventArgs e) =>
-        await StopCameraStudioAsync();
+        await _faults.GuardAsync(
+            nameof(OnCloseCameraStudioClicked),
+            () => StopCameraStudioAsync());
 
     private async void OnCameraBackgroundBlurChanged(
         object sender,
@@ -842,7 +854,12 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private async void OnLoaded(object sender, RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e) =>
+        // Startup is the one path where an unguarded fault is unrecoverable: there is no
+        // UI yet to report it through, so the app would simply vanish on launch.
+        await _faults.GuardAsync(nameof(OnLoaded), LoadAsync);
+
+    private async Task LoadAsync()
     {
         ApplyAdaptiveLayout(ActualWidth);
         CameraStudioSettingsLoadResult cameraSettings =
@@ -934,10 +951,23 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private async void OnRefreshReadinessClicked(object sender, RoutedEventArgs e)
-    {
-        await RefreshReadinessAsync();
-    }
+    private async void OnRefreshReadinessClicked(object sender, RoutedEventArgs e) =>
+        await _faults.GuardAsync(
+            nameof(OnRefreshReadinessClicked),
+            RefreshReadinessAsync);
+
+    /// <summary>
+    /// Tells the user a fault was contained rather than leaving them to guess why an
+    /// action did nothing. Marshalled, because a fault can surface off the UI thread.
+    /// </summary>
+    private void ShowContainedFault(FaultReport report) =>
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            ReadinessInfoBar.Title = "7Record recovered from a problem";
+            ReadinessInfoBar.Message = report.UserMessage;
+            ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
+            ReadinessInfoBar.IsOpen = true;
+        });
 
     private void OnRefreshHotkeysClicked(object sender, RoutedEventArgs e)
     {
@@ -1022,10 +1052,10 @@ public sealed partial class MainPage : Page, IDisposable
         _ = RefreshProjectsAsync();
     }
 
-    private async void OnRefreshProjectsClicked(object sender, RoutedEventArgs e)
-    {
-        await RefreshProjectsAsync();
-    }
+    private async void OnRefreshProjectsClicked(object sender, RoutedEventArgs e) =>
+        await _faults.GuardAsync(
+            nameof(OnRefreshProjectsClicked),
+            RefreshProjectsAsync);
 
     private async void OnProjectItemClicked(object sender, ItemClickEventArgs e)
     {
@@ -2330,10 +2360,10 @@ public sealed partial class MainPage : Page, IDisposable
         return path;
     }
 
-    private async void OnUnloaded(object sender, RoutedEventArgs e)
-    {
-        await ShutdownAsync();
-    }
+    private async void OnUnloaded(object sender, RoutedEventArgs e) =>
+        await _faults.GuardAsync(
+            nameof(OnUnloaded),
+            () => ShutdownAsync());
 
     public async Task<bool> ShutdownAsync()
     {
@@ -2879,10 +2909,12 @@ public sealed partial class MainPage : Page, IDisposable
         await StopCaptureAsync(RecordingStopReason.CaptureFailed);
     }
 
-    private async void StopCaptureFromDispatcher()
-    {
-        await StopCaptureAsync(RecordingStopReason.CaptureClosed);
-    }
+    private async void StopCaptureFromDispatcher() =>
+        // The capture-failure path. If this throws, the app dies while a recording is
+        // already in trouble, which is the worst possible moment to lose the process.
+        await _faults.GuardAsync(
+            nameof(StopCaptureFromDispatcher),
+            () => StopCaptureAsync(RecordingStopReason.CaptureClosed));
 
     private Task StopCaptureAsync(
         RecordingStopReason reason = RecordingStopReason.User)

@@ -2,6 +2,26 @@
 
 All notable work, attempted approaches, failures, and decisions are recorded here so the project can resume without repeating failed paths.
 
+## 2026-08-05
+
+### Added
+
+- Adopted the Ironclad engineering harness: `.ironclad/charter.json`, a vendored gate, a pre-commit hook and a CI workflow, so the project's rules are checked by a program rather than remembered.
+- Declared 10 architecture boundaries in the charter, all verified passing: `SevenRecord.Domain` may import nothing but the BCL, and the Export/Editor/Analysis/Recording/Media/Transcription layers may not import WinUI or platform namespaces.
+- Recorded 9 file-size exceptions, each with a stated reason and a ceiling pinned at its current size, making every one a downward-only ratchet.
+- Added `docs/ROADMAP.md`, `docs/STATUS.md`, `docs/UNKNOWNS.md` and ADR-0002, produced from a full IronClad + Overdrive audit of the build.
+- Added `SevenRecord.Infrastructure.Diagnostics`: a bounded, rotating, never-throwing file diagnostic log, and a `FaultBarrier` that contains, records and reports faults from guarded operations.
+
+### Fixed
+
+- **Release builds could die silently and lose the user's recording.** The only `UnhandledException` subscription in the app came from the generated `App.g.i.cs`, which is wrapped in `#if DEBUG` and only acts when a debugger is attached, so a shipped build had no handler at all. Any exception escaping one of the UI layer's 33 `async void` handlers terminated the process with no message and no log. `App` now installs handlers for `Application.UnhandledException` (marked handled, so the app survives and the user can still stop and keep their recording), `AppDomain.CurrentDomain.UnhandledException` (last-chance record before termination) and `TaskScheduler.UnobservedTaskException` (fire-and-forget failures, which .NET otherwise discards).
+- Gave the app diagnostics at all. There was previously no `ILogger`, no trace and no crash log anywhere in `src/`, which is the direct reason three QA findings were stuck as "blocked, needs local hardware" — they could not be diagnosed because the app reported nothing.
+- Kept the diagnostic log bounded across process restarts: a new run adopts a partially-filled file from a previous run and seeds its byte counter from the real file length, so the size budget is a property of the file rather than of a single process lifetime.
+
+### Audit findings recorded (not yet fixed)
+
+An Architect review of `MainPage.xaml.cs` found nine defects, five user-visible. They are recorded with file:line provenance in `docs/ROADMAP.md` as packets P-2 through P-7: recorder start re-entrancy, cross-project export contamination, missing shutdown ownership for background jobs, unguarded page initialization, caption edit corruption, unscoped debounced editor saves, and camera settings save races.
+
 ## 2026-07-27
 
 ### Fixed

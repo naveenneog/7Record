@@ -57,15 +57,15 @@ report what happened. Diagnostics is therefore not a "nice to have" — it is th
 The app can currently die silently, mid-recording, in a Release build, and leave no evidence.
 Nothing else matters more than this.
 
-- [ ] **P-1  A crash cannot be silent, and a handler fault cannot kill the app**   <- ACTIVE
+- [x] **P-1  A crash cannot be silent, and a handler fault cannot kill the app**   DONE
       Given any `async void` UI handler throws, when the exception escapes the handler,
       then the app stays alive, the user sees an actionable message, and a durable
       diagnostic record is written to disk with the exception and recent context.
       Given a Release build faults where no debugger is attached, when the process would
       otherwise terminate, then the fault is recorded before termination.
-      Depends on: —          Unknowns: U-1, U-2
+      Depends on: —          Unknowns: U-1, U-2 (both closed)
 
-- [ ] **P-2  Recorder commands are serialized and cannot race**
+- [ ] **P-2  Recorder commands are serialized and cannot race**   <- ACTIVE
       Given camera shutdown or source selection is still awaiting, when a second Record
       click or global hotkey arrives, then exactly one state transition occurs and no
       exception escapes to the UI thread.
