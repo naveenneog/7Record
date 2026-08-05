@@ -6,6 +6,7 @@ All notable work, attempted approaches, failures, and decisions are recorded her
 
 ### Added
 
+- Pinned the FFmpeg filter graph with 13 characterization tests over `FfmpegRenderPlanExporter.CreateCommand`. They assert the *order* of stages, not merely their presence: camera crop before exposure before scale before rounded mask before overlay; captions burned in after the overlay; per-track gain before `amix` when two audio tracks are mixed, but after `loudnorm` when there is only one; audio repair before clip edits; and the same clip-edit slice list applied to all four tracks, which is the entire synchronization guarantee of non-destructive editing. Verified by mutation — reordering `eq` before `crop` fails exactly one test while all 14 pre-existing tests still pass, which is precisely why these were needed.
 - Adopted the Ironclad engineering harness: `.ironclad/charter.json`, a vendored gate, a pre-commit hook and a CI workflow, so the project's rules are checked by a program rather than remembered.
 - Declared 10 architecture boundaries in the charter, all verified passing: `SevenRecord.Domain` may import nothing but the BCL, and the Export/Editor/Analysis/Recording/Media/Transcription layers may not import WinUI or platform namespaces.
 - Recorded 9 file-size exceptions, each with a stated reason and a ceiling pinned at its current size, making every one a downward-only ratchet.

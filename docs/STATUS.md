@@ -38,11 +38,25 @@ U-1 RESOLVED, U-2 RESOLVED, U-3 RESEARCHED (see `docs/UNKNOWNS.md`). None blocki
 
 ## Last completed
 
-**P-1 — crash barrier and diagnostics.** Commit on `feat/crash-barrier-diagnostics`.
+**P-8 — the FFmpeg filter graph is pinned by characterization tests.** 13 tests over
+`FfmpegRenderPlanExporter.CreateCommand`, zero production changes, zero runtime risk.
+Proven to have teeth by mutation testing (see ROADMAP P-8). Suite: 155 tests.
+
+**P-1 — crash barrier and diagnostics.** Commit `6c12313`.
 Proven by: 142 tests pass (was 113); solution builds 0 warnings / 0 errors;
 `tools/test-recorder-ui.ps1` passes; gate `--stage packet` = 22 passed / 0 failed; and the
 real app was launched and confirmed writing
 `%LOCALAPPDATA%\7Record\Diagnostics\7record-<date>-0000.log`.
+
+## Why P-8 was taken before P-2 (recorded re-plan)
+
+The roadmap lists P-2 next. P-8 was taken first deliberately: it needs no production change
+and carries no runtime risk, while P-2 is surgery on the recorder lifecycle whose acceptance
+criteria ("a second Record click during camera shutdown") cannot be fully validated in this
+Remote Desktop session, where `GraphicsCapturePicker` returns null and the redirected camera
+intermittently delivers no frames. Doing the zero-risk packet first buys real protection for
+the export path without spending the risk budget on work that cannot be properly proven here.
+P-2 remains the next packet and should be done on a local console session.
 
 ## Notes for the next session
 

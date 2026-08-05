@@ -109,14 +109,17 @@ Four confirmed paths silently discard or misfile user data. None of them report 
 The export filter graph encodes ordering rules that were learned by rendering real video and
 looking at it. They are order-dependent, subtle, and currently protected by nothing.
 
-- [ ] **P-8  The FFmpeg filter graph is pinned by characterization tests**
+- [x] **P-8  The FFmpeg filter graph is pinned by characterization tests**   DONE
       Given a render plan exercising camera crop/exposure/mask/overlay, audio repair, clip
       edits, gain and mix, when `FfmpegRenderPlanExporter.CreateCommand` builds the argument
       list, then the relative order of every filter stage is asserted, so that reordering
       `eq` before `crop` — or gain before `amix` in the 2-track case — fails the build
       instead of silently producing wrong video.
-      Note: `CreateCommand` is already a pure static function. This packet needs **zero**
-      production changes and carries **zero** runtime risk. It is the cheapest large win here.
+      Proven by mutation: reordering `eq` before `crop` failed exactly one test
+      (`CameraIsCroppedBeforeExposureIsApplied`) while **all 14 pre-existing tests still
+      passed**, which is the measurement of what these were worth adding. Moving the
+      single-track gain before `loudnorm` likewise failed exactly
+      `ASingleAudioTrackAppliesGainAFTERNormalising`. Both mutations reverted.
 
 - [ ] **P-9  Recorder, camera-studio and editor state machines are unit-testable**
       Given a `SevenRecord.App.Presentation` assembly with no WinUI reference (already
