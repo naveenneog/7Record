@@ -48,3 +48,8 @@ _ReSharper*/
 ## Autoresearch session artifacts
 results.tsv
 run.log
+
+# Ironclad: secrets never enter git
+.env
+.env.*
+!.env.example

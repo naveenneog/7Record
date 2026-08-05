@@ -1,0 +1,184 @@
+{
+  "_readme": "The machine-checkable half of this project's contract. Enforced by .ironclad/gate.mjs. Loosening anything here requires an ADR stating why (anti-drift M1).",
+  "version": 1,
+  "name": "7Record",
+  "strictness": "standard",
+  "commands": {
+    "test": "dotnet test SevenRecord.slnx --configuration Debug --nologo --verbosity quiet",
+    "lint": null,
+    "typecheck": null,
+    "build": "dotnet build SevenRecord.slnx --configuration Debug --nologo --verbosity quiet",
+    "a11y": null,
+    "coverage": null
+  },
+  "quality": {
+    "maxFileLines": 400,
+    "maxTestFileLines": 800,
+    "maxDebtMarkers": 20,
+    "coverageFloor": null,
+    "minTestRatio": 0.15,
+    "fileSizeExceptions": [
+      {
+        "path": "src/SevenRecord.App/MainPage.xaml.cs",
+        "maxLines": 3900,
+        "why": "Known God-object carrying seven responsibilities. Tracked as ROADMAP milestone M2; this ceiling is a ratchet that must only ever move down, never up."
+      },
+      {
+        "path": "src/SevenRecord.Camera.Windows/RecoverableCameraRecordingSession.cs",
+        "maxLines": 1100,
+        "why": "Camera capture, sharing-mode fallback, Windows Studio effect lifecycle and segment rollover in one session type. Split tracked in ROADMAP M4."
+      },
+      {
+        "path": "src/SevenRecord.Export/FfmpegRenderPlanExporter.cs",
+        "maxLines": 1000,
+        "why": "One cohesive FFmpeg filter-graph builder; splitting it would scatter a single ordering contract across files. Pinned by characterization tests instead (ROADMAP M1)."
+      },
+      {
+        "path": "src/SevenRecord.Recording.Windows/WindowsRecordingSession.cs",
+        "maxLines": 700,
+        "why": "Orchestrates four concurrent capture sources against a shared clock; decomposition tracked in ROADMAP M4."
+      },
+      {
+        "path": "src/SevenRecord.Analysis/ProjectPostProcessingPipeline.cs",
+        "maxLines": 600,
+        "why": "Idempotent multi-stage pipeline; the stages are already separable types and this file is the composition root. Tracked in ROADMAP M4."
+      },
+      {
+        "path": "src/SevenRecord.Recording.Windows/SurfaceScreenSegmentRecorder.cs",
+        "maxLines": 600,
+        "why": "D3D11 surface capture plus Media Foundation encode plus segment rollover. Tracked in ROADMAP M4."
+      },
+      {
+        "path": "src/SevenRecord.Audio.Windows/RecoverableAudioRecordingSession.cs",
+        "maxLines": 560,
+        "why": "WASAPI callback offload, bounded-channel consumer and segment rollover. Tracked in ROADMAP M4."
+      },
+      {
+        "path": "src/SevenRecord.Camera.Windows/CameraPreviewSession.cs",
+        "maxLines": 560,
+        "why": "Idle camera preview sharing the effect apply/verify/restore protocol with the recording session. Tracked in ROADMAP M4."
+      },
+      {
+        "path": "tools/measure-capture-performance.ps1",
+        "maxLines": 620,
+        "why": "Standalone measurement harness, not shipped product code; kept single-file so it can be copied to a bare machine."
+      }
+    ]
+  },
+  "ledger": {
+    "requireRoadmap": true,
+    "requireStatus": true,
+    "requireChangelog": true,
+    "requireAdr": true,
+    "maxUncommittedFiles": 20,
+    "maxUncommittedLines": 900,
+    "maxCommitsWithoutAdr": 40,
+    "architectureSignificantPaths": [
+      "src/**",
+      "packages/**"
+    ]
+  },
+  "architecture": {
+    "boundaries": [
+      {
+        "from": "src/SevenRecord.Domain/**",
+        "forbid": [
+          "^SevenRecord\\.(?!Domain)",
+          "^Microsoft\\.UI",
+          "^Microsoft\\.Windows",
+          "^Windows\\.",
+          "^NAudio",
+          "^System\\.Windows"
+        ],
+        "why": "Domain is the pure kernel of timeline, caption, audio and video value types. It must depend on nothing but the BCL so every other assembly can reference it and it stays testable without Windows."
+      },
+      {
+        "from": "src/SevenRecord.Export/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^Windows\\.",
+          "^NAudio"
+        ],
+        "why": "Render-plan and FFmpeg command construction must stay pure graph and string logic so it is unit-testable with no UI thread and no capture hardware."
+      },
+      {
+        "from": "src/SevenRecord.Editor/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^Windows\\.",
+          "^NAudio"
+        ],
+        "why": "Editor state stores are file-backed domain services. UI types here would make project state untestable and couple persistence to XAML."
+      },
+      {
+        "from": "src/SevenRecord.Analysis/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^Windows\\."
+        ],
+        "why": "Post-processing analysis must run headless in the worker process, in tests and in CI, and must never require a window."
+      },
+      {
+        "from": "src/SevenRecord.Recording/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^Windows\\.",
+          "^NAudio"
+        ],
+        "why": "Recording abstractions are the platform-neutral contract; Windows implementations belong in SevenRecord.Recording.Windows."
+      },
+      {
+        "from": "src/SevenRecord.Capture.Abstractions/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^Windows\\.",
+          "^SevenRecord\\.Capture\\.Windows"
+        ],
+        "why": "An abstraction that references its own implementation is not an abstraction."
+      },
+      {
+        "from": "src/SevenRecord.Media/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^Windows\\.",
+          "^SevenRecord\\.App"
+        ],
+        "why": "Media contracts are shared with the isolated worker process, which has no UI and must not drag WinUI into its dependency closure."
+      },
+      {
+        "from": "src/SevenRecord.Media.Worker/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^SevenRecord\\.App"
+        ],
+        "why": "The worker is a headless out-of-process host. A UI reference here breaks self-contained publish and bloats the MSIX payload."
+      },
+      {
+        "from": "src/SevenRecord.Transcription/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^Windows\\."
+        ],
+        "why": "Offline transcription must be runnable from tests and from the worker without an interactive desktop session."
+      },
+      {
+        "from": "src/SevenRecord.App.Presentation/**",
+        "forbid": [
+          "^Microsoft\\.UI",
+          "^Windows\\.",
+          "^SevenRecord\\.App\\."
+        ],
+        "why": "The presentation layer exists so recorder, camera-studio and editor state machines can be unit-tested without a XAML dispatcher. A WinUI using here defeats its entire purpose."
+      }
+    ]
+  },
+  "security": {
+    "secretAllowlist": [],
+    "auditDependencies": true
+  },
+  "tests": {
+    "skipAllowlist": []
+  },
+  "ignore": [],
+  "commandTimeoutMs": 1200000
+}
