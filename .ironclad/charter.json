@@ -20,8 +20,8 @@
     "fileSizeExceptions": [
       {
         "path": "src/SevenRecord.App/MainPage.xaml.cs",
-        "maxLines": 3900,
-        "why": "Known God-object carrying seven responsibilities. Tracked as ROADMAP milestone M2; this ceiling is a ratchet that must only ever move down, never up."
+        "maxLines": 3870,
+        "why": "Known God-object carrying seven responsibilities. Tracked as ROADMAP milestone M2; this ceiling is a ratchet that must only ever move down, never up. Lowered 3900 -> 3870 when P-2 extracted pure logic into SevenRecord.App.Presentation."
       },
       {
         "path": "src/SevenRecord.Camera.Windows/RecoverableCameraRecordingSession.cs",

@@ -45,10 +45,9 @@ public sealed partial class MainPage : Page, IDisposable
     /// </summary>
     private readonly FaultBarrier _faults;
 
-    private static readonly TimeSpan AudioDriftWarningThreshold =
-        TimeSpan.FromMilliseconds(40);
-    private static readonly TimeSpan AudioMissingWarningThreshold =
-        TimeSpan.FromMilliseconds(100);
+    /// <summary>Durable record of failures that this page handles locally.</summary>
+    private readonly IDiagnosticLog _diagnostics;
+
     private static readonly JsonSerializerOptions RenderPlanSerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -128,9 +127,9 @@ public sealed partial class MainPage : Page, IDisposable
     public MainPage()
     {
         InitializeComponent();
-        _faults = new FaultBarrier(
-            (Application.Current as App)?.Diagnostics ?? new FileDiagnosticLog(),
-            ShowContainedFault);
+        _diagnostics =
+            (Application.Current as App)?.Diagnostics ?? new FileDiagnosticLog();
+        _faults = new FaultBarrier(_diagnostics, ShowContainedFault);
         CameraOverlayCanvas.AddHandler(
             UIElement.PointerPressedEvent,
             new PointerEventHandler(OnCameraOverlayCanvasPointerPressed),
@@ -195,23 +194,6 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private static void DeleteDirectoryIfPossible(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
-        {
-            return;
-        }
-        try
-        {
-            Directory.Delete(path, recursive: true);
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-    }
 
     private void OnRecorderStateChanged(RecorderSnapshot snapshot)
     {
@@ -1139,7 +1121,7 @@ public sealed partial class MainPage : Page, IDisposable
                 editorState.State.RenderPresetIndex;
             LoadProjectPreview(timeline);
             TimelineProjectTitle.Text =
-                $"{FormatProjectDisplayName(Path.GetFileName(projectPath))}  ·  " +
+                $"{Presentation.RecorderTextFormatter.FormatProjectDisplayName(Path.GetFileName(projectPath))}  ·  " +
                 $"{timeline.Duration:hh\\:mm\\:ss}";
             TimelineItemsList.Items.Clear();
             foreach (TimelineClip clip in timeline.Clips)
@@ -1738,32 +1720,11 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 File.Delete(planPath);
             }
-            DeletePartialPreviewFiles(outputPath);
-            DeleteDirectoryIfPossible(previewScratchPath);
+            Presentation.BestEffortCleanup.DeletePartialRenders(outputPath);
+            Presentation.BestEffortCleanup.DeleteDirectory(previewScratchPath);
         }
     }
 
-    private static void DeletePartialPreviewFiles(string? outputPath)
-    {
-        if (string.IsNullOrWhiteSpace(outputPath))
-        {
-            return;
-        }
-        string directory = Path.GetDirectoryName(outputPath)!;
-        if (!Directory.Exists(directory))
-        {
-            return;
-        }
-        string pattern =
-            $".{Path.GetFileNameWithoutExtension(outputPath)}-*.partial.mp4";
-        foreach (string partialPath in Directory.GetFiles(
-                     directory,
-                     pattern,
-                     SearchOption.TopDirectoryOnly))
-        {
-            DeleteFileIfPossible(partialPath);
-        }
-    }
 
     private void DeleteEditorPreviewFile()
     {
@@ -1802,23 +1763,6 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private static void DeleteFileIfPossible(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-        {
-            return;
-        }
-        try
-        {
-            File.Delete(path);
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-    }
 
     private void LoadProjectPreview(TimelineDocument timeline)
     {
@@ -2435,7 +2379,12 @@ public sealed partial class MainPage : Page, IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private async void OnStartRecordingClicked(object sender, RoutedEventArgs e)
+    private async void OnStartRecordingClicked(object sender, RoutedEventArgs e) =>
+        await _faults.GuardAsync(
+            nameof(OnStartRecordingClicked),
+            ToggleRecordingAsync);
+
+    private async Task ToggleRecordingAsync()
     {
         RecorderState recorderState = _recorderState.Snapshot.State;
         if (recorderState is
@@ -2455,43 +2404,63 @@ public sealed partial class MainPage : Page, IDisposable
             _recorderState.Reset();
         }
 
-        if (_selectedScreen is null &&
-            !await TrySelectPrimaryDisplayAsync() &&
-            !await PickCaptureTargetAsync())
+        // Claim the recorder BEFORE any await. Preparing to record involves selecting a
+        // display, refreshing readiness and shutting down the camera studio, all of which
+        // suspend - and a second click or global hotkey arriving during those awaits used
+        // to observe Idle as well, then throw out of this async void handler when it
+        // reached BeginStart, killing the process. A refused claim is now the worst case.
+        //
+        // The claim and the two handles below are assigned with no await between them, so
+        // on the UI thread they are effectively atomic: a stop can never observe a claimed
+        // start whose cancellation handle has not been published yet.
+        //
+        // That relies on every caller reaching here on the UI thread. Verified: the button
+        // click does by definition, and the global hotkey arrives as WM_HOTKEY through a
+        // SetWindowSubclass window procedure (GlobalHotKeyService), which Windows
+        // dispatches on the thread that owns the window - the same UI thread. If a caller
+        // is ever added from a background thread, this reasoning breaks and the two
+        // assignments below must move inside the state machine's lock.
+        if (!_recorderState.TryBeginStart(out _))
         {
-            UpdateReadinessSummary();
             return;
         }
 
-        if (_lastSnapshot?.CanRecord is not true)
-        {
-            await RefreshReadinessAsync();
-        }
-
-        if (_selectedScreen is null || _lastSnapshot?.CanRecord is not true)
-        {
-            UpdateReadinessSummary();
-            return;
-        }
-
-        if (!await StopCameraStudioAsync(resetPreview: false))
-        {
-            ReadinessInfoBar.Title = "Camera settings need attention";
-            ReadinessInfoBar.Message =
-                "Recording did not start because the prior camera background effect could not be restored.";
-            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
-            return;
-        }
-        StartRecordingButton.IsEnabled = false;
-        ReadinessInfoBar.Title = "Preparing encoder";
-        ReadinessInfoBar.Message = "Validating the isolated media worker.";
-        ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
-        _recorderState.BeginStart();
         CancellationTokenSource startupCancellation = new();
         TaskCompletionSource startupCompletion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         _recordingStartupCancellation = startupCancellation;
         _recordingStartupCompletion = startupCompletion;
+
+        // The button is deliberately NOT disabled here. TryBeginStart raises StateChanged
+        // synchronously, and ApplyRecorderVisualState(Starting) has already relabelled it
+        // to "Cancel" and enabled it. Disabling it afterwards would leave the user with no
+        // way out of a start that hangs - and starting validates an out-of-process media
+        // worker, which is a real hang candidate.
+
+        WindowsCaptureTarget? captureTarget;
+        try
+        {
+            captureTarget = await PrepareToRecordAsync();
+        }
+        catch
+        {
+            // Preparation touches the display picker, the readiness probe and the camera
+            // studio, any of which can throw. Without this the claim would never be
+            // released: the FaultBarrier would contain the exception, but the recorder
+            // would sit in Starting forever and refuse every later command.
+            AbandonClaimedStart(startupCancellation, startupCompletion);
+            throw;
+        }
+
+        if (captureTarget is null)
+        {
+            AbandonClaimedStart(startupCancellation, startupCompletion);
+            return;
+        }
+
+        ReadinessInfoBar.Title = "Preparing encoder";
+        ReadinessInfoBar.Message = "Validating the isolated media worker.";
+        ReadinessInfoBar.Severity = InfoBarSeverity.Informational;
 
         try
         {
@@ -2499,7 +2468,7 @@ public sealed partial class MainPage : Page, IDisposable
                 await WindowsRecordingSession.StartAsync(
                     new WindowsRecordingRequest(
                         CreateProjectRoot(),
-                        _selectedScreen,
+                        captureTarget,
                         _cameraEnabled,
                         _cameraLayout),
                     startupCancellation.Token);
@@ -2566,7 +2535,7 @@ public sealed partial class MainPage : Page, IDisposable
             else
             {
                 AudioStatusText.Text =
-                    IssueMessage(sourceWarnings, "audio", "Audio is unavailable.");
+                    Presentation.RecorderTextFormatter.IssueMessage(IssuePairs(sourceWarnings), "audio", "Audio is unavailable.");
             }
 
             if (session.CameraDeviceName is not null)
@@ -2577,7 +2546,7 @@ public sealed partial class MainPage : Page, IDisposable
             else if (_cameraEnabled)
             {
                 CameraStatusText.Text =
-                    IssueMessage(sourceWarnings, "camera", "Camera is unavailable.");
+                    Presentation.RecorderTextFormatter.IssueMessage(IssuePairs(sourceWarnings), "camera", "Camera is unavailable.");
                 CameraPreviewBubble.Visibility = Visibility.Collapsed;
             }
         }
@@ -2600,7 +2569,14 @@ public sealed partial class MainPage : Page, IDisposable
         }
         catch (Exception exception)
         {
-            System.Diagnostics.Debug.WriteLine(exception);
+            // Handled locally (the InfoBar below explains it), but still recorded: a
+            // failed recording start is exactly what a user reports and what a support
+            // log needs to explain.
+            _diagnostics.Write(
+                DiagnosticSeverity.Fault,
+                nameof(ToggleRecordingAsync),
+                "Recording could not start.",
+                exception);
             if (_recorderState.Snapshot.State is
                 RecorderState.Starting or RecorderState.Stopping)
             {
@@ -2631,6 +2607,96 @@ public sealed partial class MainPage : Page, IDisposable
 
             startupCancellation.Dispose();
             startupCompletion.TrySetResult();
+        }
+    }
+
+    /// <summary>
+    /// Runs everything that must succeed before capture can begin, while the recorder is
+    /// already claimed so no second command can interleave.
+    /// </summary>
+    /// <returns>
+    /// The validated capture target, or <see langword="null"/> when the start should be
+    /// abandoned. Returning the target rather than a bool is what lets the caller pass a
+    /// non-null value to <c>WindowsRecordingRequest</c> without a null-forgiving operator:
+    /// the guarantee is carried by the type instead of by a comment.
+    /// </returns>
+    private async Task<WindowsCaptureTarget?> PrepareToRecordAsync()
+    {
+        if (_selectedScreen is null &&
+            !await TrySelectPrimaryDisplayAsync() &&
+            !await PickCaptureTargetAsync())
+        {
+            UpdateReadinessSummary();
+            return null;
+        }
+
+        if (_lastSnapshot?.CanRecord is not true)
+        {
+            await RefreshReadinessAsync();
+        }
+
+        if (_selectedScreen is not WindowsCaptureTarget target ||
+            _lastSnapshot?.CanRecord is not true)
+        {
+            UpdateReadinessSummary();
+            return null;
+        }
+
+        if (!await StopCameraStudioAsync(resetPreview: false))
+        {
+            ReadinessInfoBar.Title = "Camera settings need attention";
+            ReadinessInfoBar.Message =
+                "Recording did not start because the prior camera background effect could not be restored.";
+            ReadinessInfoBar.Severity = InfoBarSeverity.Error;
+            return null;
+        }
+
+        return target;
+    }
+
+    /// <summary>
+    /// Releases a claimed start whose preconditions failed, so the recorder does not stay
+    /// stuck in <see cref="RecorderState.Starting"/> and refuse every later command.
+    /// </summary>
+    private void AbandonClaimedStart(
+        CancellationTokenSource cancellation,
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            // A stop that arrived while we were preparing already moved us to Stopping and
+            // owns the teardown, so finish that rather than yanking the state back to Idle
+            // underneath whoever is awaiting it.
+            if (!_recorderState.TryAbortStart(out _) &&
+                _recorderState.Snapshot.State is RecorderState.Stopping)
+            {
+                _recorderState.CompleteStop();
+            }
+        }
+        finally
+        {
+            // In a finally because the transitions above raise StateChanged synchronously,
+            // which runs ApplyRecorderVisualState and can tear down live-preview frames. If
+            // that threw, an unresolved completion would hang ShutdownCoreAsync's stop -
+            // and MainWindow latches _closeInProgress, so the window would never close
+            // again.
+            if (ReferenceEquals(_recordingStartupCancellation, cancellation))
+            {
+                _recordingStartupCancellation = null;
+            }
+            if (ReferenceEquals(_recordingStartupCompletion, completion))
+            {
+                _recordingStartupCompletion = null;
+            }
+
+            completion.TrySetResult();
+            cancellation.Dispose();
+            StartRecordingButton.Content = "Record";
+
+            // Readiness decides whether Record may be pressed at all. Forcing IsEnabled
+            // true here would re-enable it after readiness had just refused, which is the
+            // most common reason preparation declines in the first place.
+            UpdateReadinessSummary();
         }
     }
 
@@ -2931,6 +2997,18 @@ public sealed partial class MainPage : Page, IDisposable
                 if (_recorderState.TryBeginStop(out _))
                 {
                     _recordingStartupCancellation?.Cancel();
+                }
+
+                // Closing the app during the precondition phase must not block on it.
+                // Since the claim now spans display selection, readiness and camera
+                // shutdown, this branch can be reached while the Windows capture picker is
+                // open - and that wait is bounded only by the user, who is trying to quit.
+                // Nothing has been captured yet, so there is nothing to flush: signal the
+                // cancellation and let the window go.
+                if (reason is RecordingStopReason.ApplicationExit &&
+                    _recordingSession is null)
+                {
+                    return Task.CompletedTask;
                 }
 
                 return _recordingStartupCompletion?.Task ??
@@ -3477,19 +3555,14 @@ public sealed partial class MainPage : Page, IDisposable
         ScheduleCameraStudioSave();
     }
 
-    private static string IssueMessage(
-        IEnumerable<WindowsRecordingIssue> issues,
-        string component,
-        string fallback)
-    {
-        WindowsRecordingIssue? issue = issues.FirstOrDefault(candidate =>
-            candidate.Component.StartsWith(
-                component,
-                StringComparison.OrdinalIgnoreCase));
-        return issue is null
-            ? fallback
-            : $"{fallback} {issue.Message}";
-    }
+
+    /// <summary>
+    /// Projects recorder issues down to the two strings the formatter needs, so the
+    /// presentation layer does not have to reference the Windows recording assembly.
+    /// </summary>
+    private static IEnumerable<(string Component, string Message)> IssuePairs(
+        IEnumerable<WindowsRecordingIssue> issues) =>
+        issues.Select(issue => (issue.Component, issue.Message));
 
     private void StartProjectPostProcessing(string projectRoot)
     {
@@ -3589,34 +3662,9 @@ public sealed partial class MainPage : Page, IDisposable
     }
 
     private string BuildAudioHealthText() =>
-        DescribeAudioHealth("Mic", _microphoneHealth) + Environment.NewLine +
-        DescribeAudioHealth("System", _systemAudioHealth);
+        Presentation.AudioHealthNarrator.Describe("Mic", _microphoneHealth) + Environment.NewLine +
+        Presentation.AudioHealthNarrator.Describe("System", _systemAudioHealth);
 
-    private static string DescribeAudioHealth(string source, AudioCaptureHealth? health)
-    {
-        if (health is null)
-        {
-            return $"{source}: waiting for samples.";
-        }
-
-        string missing = health.TotalMissingDuration > TimeSpan.Zero
-            ? $", {health.TotalMissingDuration.TotalMilliseconds:0.#} ms missing"
-            : string.Empty;
-        string queueOverflows = health.QueueOverflows > 0
-            ? $", {health.QueueOverflows} queue overflows"
-            : string.Empty;
-        return
-            $"{source}: {health.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift " +
-            $"({health.Drift.PartsPerMillion:+0;-0;0} ppm), " +
-            $"{health.Discontinuities} discontinuities{missing}{queueOverflows}.";
-    }
-
-    private static bool HasAudioSyncRisk(AudioCaptureHealth? health) =>
-        health is not null &&
-        (health.Drift.Exceeds(AudioDriftWarningThreshold) ||
-         health.Discontinuities > 0 ||
-         health.QueueOverflows > 0 ||
-         health.TotalMissingDuration >= AudioMissingWarningThreshold);
 
     private void UpdateAudioWarningState()
     {
@@ -3627,8 +3675,8 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
 
-        bool microphoneRisk = HasAudioSyncRisk(_microphoneHealth);
-        bool systemRisk = HasAudioSyncRisk(_systemAudioHealth);
+        bool microphoneRisk = Presentation.AudioHealthNarrator.HasSyncRisk(_microphoneHealth);
+        bool systemRisk = Presentation.AudioHealthNarrator.HasSyncRisk(_systemAudioHealth);
         if (!microphoneRisk && !systemRisk)
         {
             if (ReadinessInfoBar.Title == "Audio sync warning")
@@ -3643,41 +3691,12 @@ public sealed partial class MainPage : Page, IDisposable
         }
 
         ReadinessInfoBar.Title = "Audio sync warning";
-        ReadinessInfoBar.Message = BuildAudioWarningMessage(
+        ReadinessInfoBar.Message = Presentation.AudioHealthNarrator.BuildWarning(
             _microphoneHealth,
             _systemAudioHealth);
         ReadinessInfoBar.Severity = InfoBarSeverity.Warning;
     }
 
-    private static string BuildAudioWarningMessage(
-        AudioCaptureHealth? microphoneHealth,
-        AudioCaptureHealth? systemAudioHealth)
-    {
-        List<string> details = [];
-        if (HasAudioSyncRisk(microphoneHealth))
-        {
-            details.Add(
-                $"Mic {microphoneHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
-                $"{microphoneHealth.Drift.PartsPerMillion:+0;-0;0} ppm, " +
-                $"{microphoneHealth.Discontinuities} discontinuities, " +
-                $"{microphoneHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing, " +
-                $"{microphoneHealth.QueueOverflows} queue overflows");
-        }
-
-        if (HasAudioSyncRisk(systemAudioHealth))
-        {
-            details.Add(
-                $"System {systemAudioHealth!.Drift.Drift.TotalMilliseconds:+0.0;-0.0;0.0} ms drift, " +
-                $"{systemAudioHealth.Drift.PartsPerMillion:+0;-0;0} ppm, " +
-                $"{systemAudioHealth.Discontinuities} discontinuities, " +
-                $"{systemAudioHealth.TotalMissingDuration.TotalMilliseconds:0.#} ms missing, " +
-                $"{systemAudioHealth.QueueOverflows} queue overflows");
-        }
-
-        return details.Count == 0
-            ? "Audio sync risk detected. Consider restarting capture."
-            : $"Audio sync risk detected: {string.Join("; ", details)}. Consider restarting capture.";
-    }
 
     private void RegisterGlobalHotKeys()
     {
@@ -3752,7 +3771,7 @@ public sealed partial class MainPage : Page, IDisposable
             foreach (ProjectSummary project in projects)
             {
                 string displayName =
-                    FormatProjectDisplayName(project.Name);
+                    Presentation.RecorderTextFormatter.FormatProjectDisplayName(project.Name);
                 ListViewItem item = new()
                 {
                     Content = CreateProjectListContent(
@@ -3845,21 +3864,5 @@ public sealed partial class MainPage : Page, IDisposable
         return content;
     }
 
-    private static string FormatProjectDisplayName(string name)
-    {
-        const string TimestampFormat = "yyyyMMdd-HHmmss";
-        if (name.Length >= TimestampFormat.Length &&
-            DateTime.TryParseExact(
-                name[..TimestampFormat.Length],
-                TimestampFormat,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeLocal,
-                out DateTime timestamp))
-        {
-            return $"Recording · {timestamp:MMM d, yyyy} · {timestamp:h:mm tt}";
-        }
-
-        return name;
-    }
 
 }

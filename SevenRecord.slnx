@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/SevenRecord.Analysis/SevenRecord.Analysis.csproj" />
     <Project Path="src/SevenRecord.App/SevenRecord.App.csproj" />
+    <Project Path="src/SevenRecord.App.Presentation/SevenRecord.App.Presentation.csproj" />
     <Project Path="src/SevenRecord.Audio.Windows/SevenRecord.Audio.Windows.csproj" />
     <Project Path="src/SevenRecord.Camera.Windows/SevenRecord.Camera.Windows.csproj" />
     <Project Path="src/SevenRecord.Capture.Abstractions/SevenRecord.Capture.Abstractions.csproj" />
@@ -20,6 +21,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SevenRecord.Analysis.Tests/SevenRecord.Analysis.Tests.csproj" />
+    <Project Path="tests/SevenRecord.App.Presentation.Tests/SevenRecord.App.Presentation.Tests.csproj" />
     <Project Path="tests/SevenRecord.Audio.Tests/SevenRecord.Audio.Tests.csproj" />
     <Project Path="tests/SevenRecord.Capture.Tests/SevenRecord.Capture.Tests.csproj" />
     <Project Path="tests/SevenRecord.Camera.Tests/SevenRecord.Camera.Tests.csproj" />

@@ -59,6 +59,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\SevenRecord.Domain\SevenRecord.Domain.csproj" />
+    <ProjectReference Include="..\SevenRecord.App.Presentation\SevenRecord.App.Presentation.csproj" />
     <ProjectReference Include="..\SevenRecord.Capture.Abstractions\SevenRecord.Capture.Abstractions.csproj" />
     <ProjectReference Include="..\SevenRecord.Capture.Windows\SevenRecord.Capture.Windows.csproj" />
     <ProjectReference Include="..\SevenRecord.Recording\SevenRecord.Recording.csproj" />

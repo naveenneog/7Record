@@ -65,12 +65,17 @@ Nothing else matters more than this.
       otherwise terminate, then the fault is recorded before termination.
       Depends on: —          Unknowns: U-1, U-2 (both closed)
 
-- [ ] **P-2  Recorder commands are serialized and cannot race**   <- ACTIVE
+- [x] **P-2  Recorder commands are serialized and cannot race**   DONE
       Given camera shutdown or source selection is still awaiting, when a second Record
       click or global hotkey arrives, then exactly one state transition occurs and no
       exception escapes to the UI thread.
       Depends on: P-1          Unknowns: —
       Source: Architect finding #1 (`MainPage.xaml.cs:2408-2459`, `RecorderStateMachine.cs:119-123`)
+      Shipped `TryBeginStart` / `TryAbortStart` (atomic, non-throwing) and moved the claim
+      ahead of every await. Also created `SevenRecord.App.Presentation` — the assembly the
+      charter's tenth boundary had been reserving since M0 — and moved `AudioHealthNarrator`,
+      `RecorderTextFormatter` and `BestEffortCleanup` into it with 32 tests. `MainPage.xaml.cs`
+      went 3865 → 3868 while absorbing all of that, so the charter ratchet dropped 3900 → 3870.
 
 - [ ] **P-3  Shutdown owns every background job**
       Given an export, transcription, edited-preview render or post-processing run is in

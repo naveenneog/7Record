@@ -2,17 +2,18 @@
 
 > The first file any session reads. Write it as a handover note to someone who knows nothing.
 
-**Active packet:** P-2 — Recorder commands are serialized and cannot race
+**Active packet:** P-3 — Shutdown owns every background job
 **State:** PLAN
 <!-- PLAN → CONTRACT → RED → GREEN → REFACTOR → COUNCIL → GATE → DONE -->
 **Branch:** not yet created
 
 ## Acceptance criteria
 
-- [ ] Given camera shutdown or source selection is still awaiting, when a second Record
-      click or global hotkey arrives, then exactly one state transition occurs.
-- [ ] Given two start commands race, when both reach the state machine, then no exception
-      escapes to the UI thread.
+- [ ] Given an export, transcription, edited-preview render or post-processing run is in
+      flight, when the window closes, then every job is cancelled and awaited before
+      closure is approved.
+- [ ] Given a job does not drain, when the shutdown wait expires, then the window still
+      closes and the stuck job is recorded. A hung export must not become an unclosable window.
 
 ## Commands that prove it
 
@@ -22,41 +23,41 @@ node .ironclad/gate.mjs --stage packet
 pwsh -NoProfile -File tools/test-recorder-ui.ps1
 ```
 
-## Council verdicts (P-1, closed)
+## Council verdicts (P-2, closed)
 
 | Role | Verdict | Notes |
 |---|---|---|
-| Architect | PASS | Diagnostics placed in the existing `SevenRecord.Infrastructure` rather than a new assembly, reusing the established `%LOCALAPPDATA%\7Record` convention. No boundary added or violated; gate confirms all 10 rules still hold. |
-| Coder | PASS-WITH-NOTES → fixed | Review found 6 real defects. **Issue 1 (High):** retention deleted the newest logs after a same-day restart, and could delete the file being written — fixed by seeding the sequence from disk and pruning by `LastWriteTimeUtc` while excluding the active file. **Issue 2 (High):** `Format`/`GetBytes` sat outside the `try`, so `Write` could throw, and `App` logged *before* setting `e.Handled` — so a log failure handed back the very crash the packet prevents. Fixed both. **Issue 6:** argument validation threw out of the barrier; now contained. |
-| QA | PASS-WITH-NOTES → fixed | Review proved the concurrency test ran on exactly one thread and that no test covered a Task faulting *after* an await — the actual `async void` hazard. Also proved the restart-budget test could not fail for the bug it named (2× tolerance vs a 1× failure mode), and that 256/512-byte budgets were silently clamped to 1024. All corrected; suite grew 24 → 33 and runtime dropped 21s → 542ms after removing a thread-pool starvation hazard. |
-| UX | PASS-WITH-NOTES | Contained faults now surface in `ReadinessInfoBar` instead of failing silently. Open note carried to P-2/P-3: "handled" should also transition the recorder to a stop-and-flush state so a survived fault cannot masquerade as a healthy recording. |
-| Security | PASS | Diagnostics contain exception text and file paths only — no credentials, no user content, no media. Written under the user's own `%LOCALAPPDATA%`. Log is bounded and pruned, so it cannot be used to exhaust the disk. Gate's secret/credential/env scans all clean. |
+| Architect | PASS | The fix is an atomic claim in the state machine, not a UI-level latch, so the invariant lives where the state does. Created `SevenRecord.App.Presentation` under the boundary the charter already declared; gate confirms all 10 rules hold. `RecorderTextFormatter` deliberately takes `(string, string)` pairs rather than `WindowsRecordingIssue` so the assembly does not pull Win2D and the Windows App SDK into its test closure. |
+| Coder | PASS-WITH-NOTES → fixed | Review found four regressions introduced by moving the claim earlier. **High:** `TryBeginStart` raises `StateChanged` synchronously, so `ApplyRecorderVisualState(Starting)` had already relabelled the button to "Cancel" and enabled it — and the next line disabled it again, killing the only escape from a hung start. **Medium:** `AbandonClaimedStart` forced `IsEnabled = true`, re-enabling Record after readiness had just refused. **Medium:** it also transitioned state *before* signalling the completion with no `finally`, so a throw in `ResetLivePreview` would leave the completion unresolved and, because `MainWindow` latches `_closeInProgress`, make the window permanently unclosable. **Medium:** app close began waiting on a claimed start that could be blocked on the capture picker. All four fixed. |
+| QA | PASS-WITH-NOTES → partly fixed | Review correctly established that `tools/test-recorder-ui.ps1` is **not** evidence for this packet — it never presses Record and cannot observe `Starting`. Added the missing `RecorderTextFormatter` tests (the only extracted member whose signature and body changed, and it had none), `TryAbortStart` coverage from `Idle` and `Faulted`, and a bounded rendezvous in the concurrency test, which previously used an unbounded `Barrier` that could hang a small CI agent. **Accepted gap:** the MainPage claim-before-await ordering itself still has no automated test, because `MainPage` has no seam. That is exactly what P-9 exists to fix, and it is recorded there rather than pretended away. |
+| UX | PASS-WITH-NOTES | Abandoning a start returns straight to `Idle` rather than through `Stopping`, so the user is never told a recording that never began is being torn down. The Cancel affordance is preserved during startup (the High finding above). Note carried forward: the recorder now shows `Starting` while the capture picker is open, which is honest but is a visible behaviour change. |
+| Security | PASS | No new I/O, no new external surface. `BestEffortCleanup.DeletePartialRenders` matches on a pattern derived from the export's own file name, and a test pins that a sibling export's partial file is not deleted. |
 
 ## Open unknowns
 
-U-1 RESOLVED, U-2 RESOLVED, U-3 RESEARCHED (see `docs/UNKNOWNS.md`). None blocking P-2.
+U-1 RESOLVED, U-2 RESOLVED, U-3 RESEARCHED (see `docs/UNKNOWNS.md`). U-3 directly shapes P-3.
 
 ## Last completed
 
-**P-8 — the FFmpeg filter graph is pinned by characterization tests.** 13 tests over
-`FfmpegRenderPlanExporter.CreateCommand`, zero production changes, zero runtime risk.
-Proven to have teeth by mutation testing (see ROADMAP P-8). Suite: 155 tests.
+**P-2 — recorder commands are serialized and cannot race.** 201 tests (was 155 at P-8),
+13 test projects. Build 0 warnings / 0 errors; UIA gate passes; Ironclad gate 22 passed /
+0 failed with 10 boundaries upheld; app launches and writes diagnostics.
+
+**P-8 — the FFmpeg filter graph is pinned by characterization tests.** Proven to have teeth
+by mutation testing (see ROADMAP P-8).
 
 **P-1 — crash barrier and diagnostics.** Commit `6c12313`.
-Proven by: 142 tests pass (was 113); solution builds 0 warnings / 0 errors;
-`tools/test-recorder-ui.ps1` passes; gate `--stage packet` = 22 passed / 0 failed; and the
-real app was launched and confirmed writing
-`%LOCALAPPDATA%\7Record\Diagnostics\7record-<date>-0000.log`.
 
 ## Why P-8 was taken before P-2 (recorded re-plan)
 
-The roadmap lists P-2 next. P-8 was taken first deliberately: it needs no production change
-and carries no runtime risk, while P-2 is surgery on the recorder lifecycle whose acceptance
-criteria ("a second Record click during camera shutdown") cannot be fully validated in this
-Remote Desktop session, where `GraphicsCapturePicker` returns null and the redirected camera
-intermittently delivers no frames. Doing the zero-risk packet first buys real protection for
-the export path without spending the risk budget on work that cannot be properly proven here.
-P-2 remains the next packet and should be done on a local console session.
+P-8 needed no production change and carried no runtime risk, while P-2 is surgery on the
+recorder lifecycle whose acceptance criteria ("a second Record click during camera
+shutdown") cannot be fully validated in this Remote Desktop session, where
+`GraphicsCapturePicker` returns null and the redirected camera intermittently delivers no
+frames. Doing the zero-risk packet first bought protection for the export path without
+spending the risk budget on work that could not be properly proven here. P-2 was then done
+with its testable core (the state machine) covered by 15 unit tests; the UI ordering it
+changed still wants a manual pass on a local console.
 
 ## Notes for the next session
 
