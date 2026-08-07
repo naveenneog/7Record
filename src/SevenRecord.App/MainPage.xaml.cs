@@ -28,6 +28,7 @@ using SevenRecord.Editor;
 using SevenRecord.Export;
 using SevenRecord.Infrastructure;
 using SevenRecord.Infrastructure.Diagnostics;
+using SevenRecord.Infrastructure.Jobs;
 using SevenRecord.Input.Windows;
 using SevenRecord.Media;
 using SevenRecord.Media.Windows;
@@ -48,6 +49,17 @@ public sealed partial class MainPage : Page, IDisposable
     /// <summary>Durable record of failures that this page handles locally.</summary>
     private readonly IDiagnosticLog _diagnostics;
 
+    /// <summary>
+    /// Owns every long-running background job so shutdown can cancel and await them.
+    /// Without this, closing the window left FFmpeg and Whisper workers running.
+    /// </summary>
+    private readonly BackgroundJobRegistry _backgroundJobs;
+    /// <summary>
+    /// How long shutdown waits for background work before closing anyway. An app you
+    /// cannot quit is a worse bug than a leaked worker, and the leak gets recorded.
+    /// </summary>
+    private static readonly TimeSpan BackgroundJobDrainTimeout =
+        TimeSpan.FromSeconds(10);
     private static readonly JsonSerializerOptions RenderPlanSerializerOptions =
         new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -130,6 +142,7 @@ public sealed partial class MainPage : Page, IDisposable
         _diagnostics =
             (Application.Current as App)?.Diagnostics ?? new FileDiagnosticLog();
         _faults = new FaultBarrier(_diagnostics, ShowContainedFault);
+        _backgroundJobs = new BackgroundJobRegistry(_diagnostics);
         CameraOverlayCanvas.AddHandler(
             UIElement.PointerPressedEvent,
             new PointerEventHandler(OnCameraOverlayCanvasPointerPressed),
@@ -1081,7 +1094,7 @@ public sealed partial class MainPage : Page, IDisposable
                     projectPath,
                     cancellationToken);
             CaptionEditSession? captionSession =
-                await LoadCaptionEditSessionAsync(
+                await CaptionSessionLoader.LoadAsync(
                     projectPath,
                     timeline.Duration,
                     cancellationToken);
@@ -1338,14 +1351,10 @@ public sealed partial class MainPage : Page, IDisposable
     private void UpdateAudioMixStatus()
     {
         AudioMixStatusText.Text =
-            $"Microphone {DescribeMix(_audioMix.Microphone)}; " +
-            $"system audio {DescribeMix(_audioMix.SystemAudio)}.";
+            $"Microphone {Presentation.RecorderStatusFormatter.DescribeMix(_audioMix.Microphone)}; " +
+            $"system audio {Presentation.RecorderStatusFormatter.DescribeMix(_audioMix.SystemAudio)}.";
     }
 
-    private static string DescribeMix(AudioMixSettings mix) =>
-        mix.IsMuted
-            ? "muted"
-            : $"{mix.GainDecibels:+0.0;-0.0;0.0} dB";
 
     private void PopulateClipEditor(string? selectedId = null)
     {
@@ -1668,10 +1677,13 @@ public sealed partial class MainPage : Page, IDisposable
             ProjectPreviewStatusText.Text =
                 "Refreshing the edited preview...";
             RenderPlanExportResult result =
-                await MediaWorkerExportClient.ExportAsync(
-                    workerPath,
-                    planPath,
-                    outputPath,
+                await _backgroundJobs.RunAsync(
+                    "edited-preview",
+                    token => MediaWorkerExportClient.ExportAsync(
+                        workerPath,
+                        planPath,
+                        outputPath,
+                        token),
                     cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             if (!result.Succeeded ||
@@ -1954,13 +1966,21 @@ public sealed partial class MainPage : Page, IDisposable
                 throw new InvalidOperationException(
                     "The 7Record media worker is missing. Repair or reinstall 7Record.");
             RenderPlanSummaryText.Text = "Exporting MP4...";
-            RenderPlanExportResult result = await MediaWorkerExportClient.ExportAsync(
-                workerPath,
-                renderPlanPath,
-                outputPath);
+            RenderPlanExportResult result = await _backgroundJobs.RunAsync(
+                "export-mp4",
+                token => MediaWorkerExportClient.ExportAsync(
+                    workerPath,
+                    renderPlanPath,
+                    outputPath,
+                    token));
             RenderPlanSummaryText.Text = result.Succeeded
                 ? $"Export complete: {result.OutputPath}"
                 : $"Export failed: {result.Error}";
+        }
+        catch (OperationCanceledException)
+        {
+            // Reachable since the export is cancelled at shutdown.
+            RenderPlanSummaryText.Text = "Export was canceled.";
         }
         catch (Exception exception)
         {
@@ -2001,12 +2021,15 @@ public sealed partial class MainPage : Page, IDisposable
                 "7Record",
                 "Models",
                 "ggml-tiny.bin");
-            CaptionDocument captions = await Task.Run(async () =>
+            CaptionDocument captions = await _backgroundJobs.RunAsync(
+                "generate-captions",
+                jobToken => Task.Run(async () =>
             {
                 List<CaptionSegment> segments = [];
                 string language = "auto";
                 foreach (TimelineClip microphone in microphones)
                 {
+                    jobToken.ThrowIfCancellationRequested();
                     string audioPath = Path.Combine(
                         timeline.ProjectPath,
                         microphone.SourcePath);
@@ -2014,7 +2037,8 @@ public sealed partial class MainPage : Page, IDisposable
                         await LocalWhisperTranscriber.TranscribeAsync(
                             audioPath,
                             modelPath,
-                            "auto");
+                            "auto",
+                            jobToken);
                     language = segmentDocument.Language;
                     segments.AddRange(
                         segmentDocument.Segments.Select(segment =>
@@ -2028,7 +2052,7 @@ public sealed partial class MainPage : Page, IDisposable
                 return CaptionDocumentValidator.ValidateAndNormalize(
                     new CaptionDocument(1, language, segments),
                     timeline.Duration);
-            });
+            }, jobToken));
             string captionPath = Path.Combine(
                 timeline.ProjectPath,
                 "captions.json");
@@ -2077,6 +2101,12 @@ public sealed partial class MainPage : Page, IDisposable
 
             RenderPlanSummaryText.Text =
                 $"Generated {captions.Segments.Count} caption segment(s); SRT and VTT saved.";
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelling is not failing. Reachable now that captions run through the job
+            // registry, so shutdown or a project switch cancels them.
+            RenderPlanSummaryText.Text = "Caption generation was canceled.";
         }
         catch (Exception exception)
         {
@@ -2175,27 +2205,6 @@ public sealed partial class MainPage : Page, IDisposable
             $"{_currentTimeline.Captions.Count} captions.";
     }
 
-    private static async Task<CaptionEditSession?> LoadCaptionEditSessionAsync(
-        string projectPath,
-        TimeSpan timelineDuration,
-        CancellationToken cancellationToken = default)
-    {
-        string path = Path.Combine(projectPath, "captions.json");
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        string json = await File.ReadAllTextAsync(
-            path,
-            cancellationToken);
-        CaptionDocument? document = JsonSerializer.Deserialize<CaptionDocument>(
-            json,
-            RenderPlanSerializerOptions);
-        return document is null
-            ? null
-            : new CaptionEditSession(document, timelineDuration);
-    }
 
     private void PopulateCaptionEditor(string? selectedId = null)
     {
@@ -2351,6 +2360,13 @@ public sealed partial class MainPage : Page, IDisposable
         RetryPendingEditorPreviewCleanup();
         DisposeGlobalHotKeys();
         await StopCaptureAsync(RecordingStopReason.ApplicationExit);
+
+        // Last, so stopping capture has already published its final segments before we
+        // cancel the workers that might process them. The wait is bounded: a wedged
+        // FFmpeg or Whisper worker must not make the window unclosable. The registry
+        // records any job that outlives the drain, so nothing is logged again here.
+        await _backgroundJobs.DrainAsync(BackgroundJobDrainTimeout);
+
         return true;
     }
 
@@ -2362,6 +2378,7 @@ public sealed partial class MainPage : Page, IDisposable
         }
 
         _disposed = true;
+        _backgroundJobs.Dispose();
         _postProcessingCancellation.Cancel();
         _cameraSettingsSaveCancellation?.Cancel();
         _cameraSettingsSaveCancellation?.Dispose();
@@ -2467,7 +2484,7 @@ public sealed partial class MainPage : Page, IDisposable
             WindowsRecordingStartResult startResult =
                 await WindowsRecordingSession.StartAsync(
                     new WindowsRecordingRequest(
-                        CreateProjectRoot(),
+                        Presentation.RecorderStatusFormatter.CreateProjectRoot(),
                         captureTarget,
                         _cameraEnabled,
                         _cameraLayout),
@@ -2799,7 +2816,7 @@ public sealed partial class MainPage : Page, IDisposable
             }
             SetStatusIcon(
                 ScreenSourceIcon,
-                WorstState(screen.State, graphics.State));
+                Presentation.RecorderStatusFormatter.WorstState(screen.State, graphics.State));
 
             CaptureReadinessItem camera =
                 snapshot.Items.Single(item => item.Key == "camera");
@@ -2829,7 +2846,7 @@ public sealed partial class MainPage : Page, IDisposable
             AudioStatusText.Text = $"{microphone.Message} {systemAudio.Message}";
             SetStatusIcon(
                 AudioSourceIcon,
-                WorstState(microphone.State, systemAudio.State));
+                Presentation.RecorderStatusFormatter.WorstState(microphone.State, systemAudio.State));
 
             ApplyStatus(
                 StorageStatusText,
@@ -2868,21 +2885,6 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private static CaptureSourceState WorstState(
-        CaptureSourceState first,
-        CaptureSourceState second) =>
-        StateSeverity(first) >= StateSeverity(second)
-            ? first
-            : second;
-
-    private static int StateSeverity(CaptureSourceState state) =>
-        state switch
-        {
-            CaptureSourceState.Error => 3,
-            CaptureSourceState.Unavailable => 3,
-            CaptureSourceState.Warning => 2,
-            _ => 1,
-        };
 
     private static void SetStatusIcon(
         FontIcon icon,
@@ -3174,13 +3176,6 @@ public sealed partial class MainPage : Page, IDisposable
         }
     }
 
-    private static string CreateProjectRoot()
-    {
-        string videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
-        string projectName =
-            $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
-        return Path.Combine(videos, "7Record", "Projects", projectName);
-    }
 
     private void OnScreenPreviewFrameReady(SoftwareBitmapPreviewFrame frame)
     {
@@ -3568,12 +3563,18 @@ public sealed partial class MainPage : Page, IDisposable
     {
         _latestPostProcessingProject = Path.GetFullPath(projectRoot);
         FrameStatusText.Text += " Smart edits are processing in the background.";
-        _ = RunProjectPostProcessingAsync(_latestPostProcessingProject);
+        _ = _backgroundJobs.RunAsync(
+            "post-processing",
+            token => RunProjectPostProcessingAsync(
+                _latestPostProcessingProject,
+                token),
+            _postProcessingCancellation.Token);
     }
 
-    private async Task RunProjectPostProcessingAsync(string projectRoot)
+    private async Task RunProjectPostProcessingAsync(
+        string projectRoot,
+        CancellationToken cancellationToken)
     {
-        CancellationToken cancellationToken = _postProcessingCancellation.Token;
         try
         {
             string? workerPath = MediaWorkerLocator.FindExecutable();

@@ -52,10 +52,10 @@ report what happened. Diagnostics is therefore not a "nice to have" — it is th
 
 ---
 
-## Now — M1: Survive the conditions that actually occur
+## Now — M1: Survive the conditions that actually occur — **COMPLETE**
 
-The app can currently die silently, mid-recording, in a Release build, and leave no evidence.
-Nothing else matters more than this.
+The app could die silently, mid-recording, in a Release build, and leave no evidence.
+All three packets are shipped.
 
 - [x] **P-1  A crash cannot be silent, and a handler fault cannot kill the app**   DONE
       Given any `async void` UI handler throws, when the exception escapes the handler,
@@ -77,12 +77,17 @@ Nothing else matters more than this.
       `RecorderTextFormatter` and `BestEffortCleanup` into it with 32 tests. `MainPage.xaml.cs`
       went 3865 → 3868 while absorbing all of that, so the charter ratchet dropped 3900 → 3870.
 
-- [ ] **P-3  Shutdown owns every background job**
+- [x] **P-3  Shutdown owns every background job**   DONE
       Given an export, transcription, edited-preview render or post-processing run is in
       flight, when the window closes, then every job is cancelled and awaited before
       closure is approved, and no worker process is orphaned.
-      Depends on: P-1          Unknowns: U-3
+      Depends on: P-1          Unknowns: U-3 (closed)
       Source: Architect finding #3 (`MainPage.xaml.cs:1983-1986`, `MediaWorkerExportClient.cs:49-55`)
+      Shipped `BackgroundJobRegistry` with a **bounded** drain: a job that ignores its token
+      cannot make the window unclosable, and if one outlives us the drain records it by name.
+      Export and caption generation now pass the cancellation tokens their clients already
+      accepted but never received. Verified by a real graceful close (`WM_CLOSE` →
+      `AppWindow.Closing` → `ShutdownAsync` → `DrainAsync`): exits in 0.6s, no orphans.
 
 ## Next — M2: Never lose the user's work
 

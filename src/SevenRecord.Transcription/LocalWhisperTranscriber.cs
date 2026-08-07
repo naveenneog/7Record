@@ -55,9 +55,21 @@ public sealed class LocalWhisperTranscriber
         }
         finally
         {
-            if (File.Exists(normalizedPath))
+            // Best-effort: a cancelled FFmpeg may still be releasing the handle, and an
+            // IOException thrown from a finally would replace the real
+            // OperationCanceledException with a misleading sharing-violation message.
+            try
             {
-                File.Delete(normalizedPath);
+                if (File.Exists(normalizedPath))
+                {
+                    File.Delete(normalizedPath);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
             }
         }
     }
@@ -128,7 +140,21 @@ public sealed class LocalWhisperTranscriber
 
             Task<string> error = process.StandardError.ReadToEndAsync(cancellationToken);
             Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken);
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // `using Process` only releases handles; it does not terminate. Without
+                // this, cancelling caption generation at shutdown abandons a live
+                // ffmpeg.exe that outlives 7Record - the exact leak the background job
+                // barrier exists to prevent. Every other process launcher in this repo
+                // already does this; this one was missed because until the job registry
+                // wired a real token through, this path could never be cancelled.
+                await TerminateProcessAsync(process).ConfigureAwait(false);
+                throw;
+            }
             _ = await output;
             string standardError = await error;
             if (process.ExitCode != 0)
@@ -144,6 +170,29 @@ public sealed class LocalWhisperTranscriber
             throw new InvalidOperationException(
                 "FFmpeg audio normalization could not be executed.",
                 exception);
+        }
+    }
+
+    private static async Task TerminateProcessAsync(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync()
+                    .WaitAsync(TimeSpan.FromSeconds(5))
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (Win32Exception)
+        {
+        }
+        catch (TimeoutException)
+        {
         }
     }
 }
